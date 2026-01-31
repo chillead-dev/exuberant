@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>New post — Exuberant</title>
+  <link rel="stylesheet" href="create.css">
+</head>
+<body>
+
+<main class="wrap">
+
+  <header class="bar">
+    <button class="ghost" onclick="history.back()">Back</button>
+    <div class="ttl">New post</div>
+    <div></div>
+  </header>
+
+  <section class="card">
+    <input id="title" placeholder="Заголовок">
+    <textarea id="body" placeholder="Текст поста (markdown поддерживается)"></textarea>
+
+    <button id="publish" disabled onclick="publish()">Опубликовать</button>
+  </section>
+
+</main>
+
+<script>
+const bodyInput = document.getElementById("body");
+const titleInput = document.getElementById("title");
+const publishBtn = document.getElementById("publish");
+
+function check() {
+  publishBtn.disabled = !(titleInput.value.trim() && bodyInput.value.trim());
+}
+titleInput.oninput = check;
+bodyInput.oninput = check;
+
+async function publish() {
+  await fetch("/api/posts", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    credentials: "include",
+    body: JSON.stringify({
+      title: titleInput.value,
+      body: bodyInput.value
+    })
+  });
+  location.href = "/forum.html";
+}
+</script>
+
+</body>
+</html>
