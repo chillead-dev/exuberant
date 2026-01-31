@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Settings — Exuberant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="settings.css" />
+</head>
+<body>
+
+<main class="wrap">
+  <header class="bar">
+    <button class="ghost" onclick="location.href='/forum.html'">Back</button>
+    <div class="ttl">Settings</div>
+    <button class="ghost" onclick="logout()">Logout</button>
+  </header>
+
+  <section class="card">
+    <div id="msg" class="msg hidden"></div>
+
+    <label>Name</label>
+    <input id="name" placeholder="Name">
+
+    <label>Username</label>
+    <input id="username" placeholder="@username">
+
+    <label>Avatar URL (https)</label>
+    <input id="avatarUrl" placeholder="https://...">
+
+    <button onclick="save()">Save</button>
+  </section>
+</main>
+
+<script>
+function showMsg(t){ msg.textContent=t; msg.classList.remove("hidden"); }
+function hideMsg(){ msg.classList.add("hidden"); msg.textContent=""; }
+
+async function me(){
+  const r = await fetch("/api/profile", { credentials:"include" });
+  if (r.status === 401) location.href="/index.html";
+  return r.json();
+}
+
+async function save(){
+  hideMsg(
