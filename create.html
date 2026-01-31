@@ -4,49 +4,82 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>New post — Exuberant</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="base.css">
   <link rel="stylesheet" href="create.css">
 </head>
 <body>
 
-<main class="wrap">
+<header class="topbar">
+  <div class="title">New post</div>
+  <div class="right">
+    <button class="btn-ghost" onclick="location.href='/forum.html'">Back</button>
+  </div>
+</header>
 
-  <header class="bar">
-    <button class="ghost" onclick="history.back()">Back</button>
-    <div class="ttl">New post</div>
-    <div></div>
-  </header>
+<main class="container">
+  <section class="card editor">
+    <div id="msg" class="msg hidden"></div>
 
-  <section class="card">
-    <input id="title" placeholder="Заголовок">
-    <textarea id="body" placeholder="Текст поста (markdown поддерживается)"></textarea>
+    <label class="label">Title</label>
+    <input class="input" id="title" placeholder="">
 
-    <button id="publish" disabled onclick="publish()">Опубликовать</button>
+    <label class="label">Body</label>
+    <textarea class="textarea" id="body" placeholder=""></textarea>
+
+    <div class="editor-row">
+      <button class="btn" id="publish" disabled onclick="publish()">Publish</button>
+      <button class="btn-ghost" onclick="preview()">Preview</button>
+    </div>
+
+    <div id="pv" class="preview hidden"></div>
   </section>
-
 </main>
 
 <script>
-const bodyInput = document.getElementById("body");
 const titleInput = document.getElementById("title");
+const bodyInput = document.getElementById("body");
 const publishBtn = document.getElementById("publish");
 
-function check() {
+function showMsg(t){ msg.textContent=t; msg.classList.remove("hidden"); }
+function hideMsg(){ msg.classList.add("hidden"); msg.textContent=""; }
+
+function check(){
   publishBtn.disabled = !(titleInput.value.trim() && bodyInput.value.trim());
 }
 titleInput.oninput = check;
 bodyInput.oninput = check;
 
-async function publish() {
-  await fetch("/api/posts", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    credentials: "include",
-    body: JSON.stringify({
-      title: titleInput.value,
-      body: bodyInput.value
-    })
+async function publish(){
+  hideMsg();
+  const r = await fetch("/api/posts", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    credentials:"include",
+    body: JSON.stringify({ title: titleInput.value, body: bodyInput.value })
   });
-  location.href = "/forum.html";
+  if (r.status === 401) return location.href="/index.html";
+  const j = await r.json().catch(()=>({}));
+  if (!j.ok) return showMsg("Не получилось опубликовать.");
+  location.href="/forum.html";
+}
+
+async function preview(){
+  pv.classList.toggle("hidden");
+  if (!pv.classList.contains("hidden")) {
+    const r = await fetch("/api/markdown", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      credentials:"include",
+      body: JSON.stringify({ body: bodyInput.value })
+    });
+    const j = await r.json().catch(()=>({}));
+    pv.innerHTML = j.html || "";
+  }
 }
 </script>
 
