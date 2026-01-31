@@ -7,51 +7,93 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
+  <link rel="stylesheet" href="base.css">
   <link rel="stylesheet" href="forum.css">
 </head>
 <body>
 
-<div class="app">
+<header class="topbar">
+  <div class="title">Exuberant</div>
+  <div class="right">
+    <span id="meTag" class="pill hidden"></span>
+    <button class="btn-ghost" onclick="location.href='/settings.html'">Settings</button>
+  </div>
+</header>
 
-  <!-- TOP -->
-  <header class="topbar">
-    <div class="title">Exuberant</div>
-    <button class="ghost" onclick="location.href='/settings.html'">Settings</button>
-  </header>
+<main class="container">
+  <div class="feed-head">
+    <div class="feed-title">Feed</div>
+    <div class="feed-actions">
+      <input class="input search" id="q" placeholder="Search…" oninput="render()">
+      <button class="btn-ghost" onclick="refresh()">Refresh</button>
+    </div>
+  </div>
 
-  <!-- FEED -->
-  <main class="feed" id="feed"></main>
+  <div id="empty" class="empty hidden">
+    Пока нет постов.
+  </div>
 
-</div>
+  <section id="feed" class="feed"></section>
+</main>
 
-<!-- BOTTOM NAV (без иконок) -->
 <nav class="bottom-nav">
-  <button class="nav-item active" onclick="setTab('feed')">Feed</button>
-  <button class="nav-item" onclick="setTab('search')">Search</button>
-  <button class="nav-item center" onclick="openCreate()">New</button>
+  <button class="nav-item active" onclick="location.href='/forum.html'">Feed</button>
+  <button class="nav-item" onclick="location.href='/create.html'">New</button>
   <button class="nav-item" onclick="location.href='/settings.html'">Profile</button>
 </nav>
 
 <script>
-async function me() {
-  const r = await fetch("/api/profile", { credentials: "include" });
-  if (r.status === 401) location.href = "/index.html";
+let POSTS = [];
+let ME = null;
+
+function esc(s){ return String(s||"").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+async function apiMe(){
+  const r = await fetch("/api/profile", { credentials:"include" });
+  if (r.status === 401) location.href="/index.html";
+  return r.json();
+}
+async function apiPosts(){
+  const r = await fetch("/api/posts", { credentials:"include" });
+  if (r.status === 401) location.href="/index.html";
   return r.json();
 }
 
-function setTab(tab) {
-  document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
-  event.target.classList.add("active");
+function card(post){
+  const dt = new Date(post.createdAt || Date.now());
+  const meta = `${esc(post.authorTag || post.author || "")} · ${dt.toLocaleString()}`;
+  return `
+    <article class="post-card" onclick="location.href='/post.html?id=${encodeURIComponent(post.id)}'">
+      <div class="post-title">${esc(post.title)}</div>
+      <div class="post-meta">${meta}</div>
+      <div class="post-snippet">${post.snippet || ""}</div>
+    </article>
+  `;
 }
 
-function openCreate() {
-  location.href = "/create.html";
+function render(){
+  const term = q.value.trim().toLowerCase();
+  const filtered = term
+    ? POSTS.filter(p => (p.title||"").toLowerCase().includes(term))
+    : POSTS;
+
+  empty.classList.toggle("hidden", filtered.length !== 0);
+  feed.innerHTML = filtered.map(card).join("");
 }
 
-(async () => {
-  await me();
+async function refresh(){
+  POSTS = await apiPosts();
+  render();
+}
+
+(async()=>{
+  ME = await apiMe();
+  meTag.textContent = "@"+(ME.username||"");
+  meTag.classList.remove("hidden");
+
+  await refresh();
 })();
 </script>
 
