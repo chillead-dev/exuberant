@@ -4,33 +4,51 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Settings — Exuberant</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="settings.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="settings.css">
 </head>
 <body>
 
-<main class="wrap">
-  <header class="bar">
-    <button class="ghost" onclick="location.href='/forum.html'">Back</button>
-    <div class="ttl">Settings</div>
-    <button class="ghost" onclick="logout()">Logout</button>
-  </header>
+<header class="topbar">
+  <div class="title">Settings</div>
+  <div class="right">
+    <button class="btn-ghost" onclick="location.href='/forum.html'">Back</button>
+    <button class="btn-ghost" onclick="logout()">Logout</button>
+  </div>
+</header>
 
-  <section class="card">
+<main class="container">
+  <section class="card set-card">
     <div id="msg" class="msg hidden"></div>
 
-    <label>Name</label>
-    <input id="name" placeholder="Name">
+    <label class="label">Name</label>
+    <input class="input" id="name">
 
-    <label>Username</label>
-    <input id="username" placeholder="@username">
+    <label class="label">Username</label>
+    <input class="input" id="username" placeholder="@username">
 
-    <label>Avatar URL (https)</label>
-    <input id="avatarUrl" placeholder="https://...">
+    <label class="label">Avatar URL (https)</label>
+    <input class="input" id="avatarUrl" placeholder="https://...">
 
-    <button onclick="save()">Save</button>
+    <button class="btn" onclick="save()">Save</button>
+  </section>
+
+  <section class="card set-card">
+    <div class="sec-head">
+      <div class="sec-title">Sessions</div>
+      <button class="btn-ghost" onclick="loadSessions()">Refresh</button>
+    </div>
+
+    <div id="sess" class="sess"></div>
+
+    <div class="hr"></div>
+
+    <button class="btn-ghost danger" onclick="logoutAll()">Logout all sessions</button>
   </section>
 </main>
 
@@ -45,4 +63,54 @@ async function me(){
 }
 
 async function save(){
-  hideMsg(
+  hideMsg();
+  const r = await fetch("/api/profile", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    credentials:"include",
+    body: JSON.stringify({
+      name: name.value,
+      username: username.value,
+      avatarUrl: avatarUrl.value
+    })
+  });
+  const j = await r.json().catch(()=>({}));
+  if (j.error === "USERNAME_TAKEN") return showMsg("Username занят.");
+  if (j.error) return showMsg("Ошибка. Проверь данные.");
+  showMsg("Сохранено.");
+}
+
+async function logout(){
+  await fetch("/api/auth?action=logout", { method:"POST", credentials:"include" });
+  location.href="/index.html";
+}
+
+async function logoutAll(){
+  await fetch("/api/sessions?action=logout_all", { method:"POST", credentials:"include" });
+  location.href="/index.html";
+}
+
+async function loadSessions(){
+  const r = await fetch("/api/sessions", { credentials:"include" });
+  if (r.status === 401) return location.href="/index.html";
+  const j = await r.json().catch(()=>({}));
+  const items = (j.sessions || []).map(s => `
+    <div class="sess-item">
+      <div class="sess-main">${s.idShort}</div>
+      <div class="sess-sub">${new Date(s.createdAt).toLocaleString()}</div>
+    </div>
+  `).join("");
+  sess.innerHTML = items || `<div class="muted small">No sessions</div>`;
+}
+
+(async()=>{
+  const u = await me();
+  name.value = u.name || "";
+  username.value = "@"+(u.username || "");
+  avatarUrl.value = u.avatarUrl || "";
+  await loadSessions();
+})();
+</script>
+
+</body>
+</html>
