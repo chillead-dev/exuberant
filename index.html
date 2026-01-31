@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Exuberant Auth</title>
+</head>
+<body>
+
+<div id="step1">
+  <input id="email" placeholder="email" />
+  <input id="password" type="password" placeholder="password" />
+  <button onclick="sendCode()">Далее</button>
+</div>
+
+<div id="step2" style="display:none">
+  <input id="code" placeholder="код из почты" />
+  <button onclick="verify()">Подтвердить</button>
+</div>
+
+<div id="step3" style="display:none">
+  <input id="name" placeholder="имя" />
+  <input id="username" placeholder="@username" />
+  <button onclick="finish()">Готово</button>
+</div>
+
+<script>
+let EMAIL = "";
+
+async function sendCode() {
+  EMAIL = email.value;
+  await fetch("/auth/sendCode", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      email: email.value,
+      password: password.value
+    })
+  });
+  step1.style.display = "none";
+  step2.style.display = "block";
+}
+
+async function verify() {
+  const r = await fetch("/auth/verifyCode", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      email: EMAIL,
+      code: code.value
+    })
+  });
+  const j = await r.json();
+  if (j.type === "auth.sentCodeTypeSetUpEmailRequired") {
+    step2.style.display = "none";
+    step3.style.display = "block";
+  }
+}
+
+async function finish() {
+  await fetch("/auth/setup", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      email: EMAIL,
+      name: name.value,
+      username: username.value
+    })
+  });
+  alert("Регистрация завершена");
+}
+</script>
+
+</body>
+</html>
