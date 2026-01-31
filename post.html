@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Post — Exuberant</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="post.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="title">Post</div>
+  <div class="right">
+    <button class="btn-ghost" onclick="location.href='/forum.html'">Back</button>
+  </div>
+</header>
+
+<main class="container">
+  <section class="card post-wrap">
+    <div id="pTitle" class="p-title"></div>
+    <div id="pMeta" class="p-meta"></div>
+    <div id="pBody" class="p-body"></div>
+  </section>
+
+  <section class="card com-wrap">
+    <div class="com-head">
+      <div class="com-title">Comments</div>
+      <button class="btn-ghost" onclick="load()">Refresh</button>
+    </div>
+
+    <div id="comList" class="com-list"></div>
+
+    <div class="hr"></div>
+
+    <label class="label">New comment</label>
+    <textarea class="textarea" id="cBody"></textarea>
+    <button class="btn" id="cBtn" onclick="send()">Send</button>
+
+    <div id="msg" class="msg hidden"></div>
+  </section>
+</main>
+
+<script>
+const id = new URLSearchParams(location.search).get("id") || "";
+
+function showMsg(t){ msg.textContent=t; msg.classList.remove("hidden"); }
+function hideMsg(){ msg.classList.add("hidden"); msg.textContent=""; }
+
+async function load(){
+  hideMsg();
+  const r = await fetch(`/api/post?id=${encodeURIComponent(id)}`, { credentials:"include" });
+  if (r.status === 401) return location.href="/index.html";
+  const j = await r.json().catch(()=>({}));
+
+  pTitle.textContent = j.post?.title || "";
+  pMeta.textContent = `${j.post?.authorTag || j.post?.author || ""} · ${new Date(j.post?.createdAt||Date.now()).toLocaleString()}`;
+  pBody.innerHTML = j.post?.body || "";
+
+  comList.innerHTML = (j.comments || []).map(c => `
+    <div class="com">
+      <div class="com-meta">${(c.authorTag || c.author || "")} · ${new Date(c.createdAt||Date.now()).toLocaleString()}</div>
+      <div class="com-body">${c.body || ""}</div>
+    </div>
+  `).join("") || `<div class="muted small">No comments yet.</div>`;
+}
+
+async function send(){
+  hideMsg();
+  cBtn.disabled = true;
+
+  const r = await fetch("/api/comments", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    credentials:"include",
+    body: JSON.stringify({ postId: id, body: cBody.value })
+  });
+
+  cBtn.disabled = false;
+
+  if (r.status === 401) return location.href="/index.html";
+  const j = await r.json().catch(()=>({}));
+  if (!j.ok) return showMsg("Не получилось отправить.");
+  cBody.value = "";
+  await load();
+}
+
+load();
+</script>
+
+</body>
+</html>
