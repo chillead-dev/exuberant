@@ -1,32 +1,64 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Exuberant</title>
-  <link rel="stylesheet" href="style.css">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<div class="card">
-  <h1>Exuberant</h1>
+<main class="layout">
+  <section class="auth">
 
-  <div id="step1">
-    <input id="email" placeholder="Email">
-    <input id="password" type="password" placeholder="Пароль">
-    <button onclick="sendCode()">Продолжить</button>
-  </div>
+    <header class="header">
+      <h1>Exuberant</h1>
+      <p class="subtitle">
+        форум.<br>
+      </p>
+    </header>
 
-  <div id="step2" class="hidden">
-    <input id="code" placeholder="Код из письма">
-    <button onclick="verify()">Подтвердить</button>
-  </div>
+    <!-- STEP 1 -->
+    <div id="step1" class="block">
+      <label>Email</label>
+      <input id="email" placeholder="you@example.com">
 
-  <div id="step3" class="hidden">
-    <input id="name" placeholder="Имя">
-    <input id="username" placeholder="@username">
-    <button onclick="finish()">Готово</button>
-  </div>
-</div>
+      <label>Пароль</label>
+      <input id="password" type="password" placeholder="••••••••">
+
+      <button onclick="sendCode()">Продолжить</button>
+    </div>
+
+    <!-- STEP 2 -->
+    <div id="step2" class="block hidden">
+      <label>Код из письма</label>
+      <input id="code" placeholder="123456">
+
+      <button onclick="verify()">Подтвердить</button>
+    </div>
+
+    <!-- STEP 3 -->
+    <div id="step3" class="block hidden">
+      <label>Имя</label>
+      <input id="name" placeholder="Alex">
+
+      <label>Username</label>
+      <input id="username" placeholder="@username">
+
+      <button onclick="finish()">Завершить</button>
+    </div>
+
+    <footer class="footer">
+      <span>© exuberant.pw</span>
+    </footer>
+
+  </section>
+</main>
 
 <script>
 let EMAIL = "";
@@ -34,7 +66,7 @@ let EMAIL = "";
 const api = (action, data) =>
   fetch(`/api/auth?action=${action}`, {
     method: "POST",
-    headers: {"Content-Type":"application/json"},
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data)
   }).then(r => r.json());
 
