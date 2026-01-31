@@ -1,0 +1,21 @@
+.editor{ padding:16px; }
+.editor-row{ display:flex; gap:10px; margin-top:8px; }
+.editor-row .btn{ flex:1; }
+.preview{
+  margin-top:14px;
+  padding:14px;
+  border-radius: var(--radius);
+  border:1px solid var(--border);
+  background: rgba(0,0,0,.35);
+  color: var(--text);
+  line-height:1.55;
+}
+.preview h1,.preview h2,.preview h3{margin:10px 0 6px}
+.preview p{margin:8px 0}
+.preview a{text-decoration:underline}
+.preview code{
+  background:#0b0b0b;
+  border:1px solid var(--border);
+  padding:2px 6px;
+  border-radius:10px;
+}
