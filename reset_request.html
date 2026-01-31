@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reset password — Exuberant</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="reset.css">
+
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</head>
+<body>
+
+<div class="container reset-wrap">
+  <header class="topbar">
+    <div class="title">Reset</div>
+    <div class="right">
+      <button class="btn-ghost" onclick="location.href='/index.html'">Back</button>
+    </div>
+  </header>
+
+  <section class="card reset-card">
+    <div class="muted small">Мы отправим ссылку на смену пароля (если аккаунт существует).</div>
+
+    <div id="msg" class="msg hidden"></div>
+
+    <div class="hr"></div>
+
+    <label class="label">Email</label>
+    <input class="input" id="email" placeholder="you@example.com" autocomplete="email">
+
+    <div class="cap">
+      <div class="cf-turnstile" data-sitekey="" data-callback="onCaptcha"></div>
+    </div>
+
+    <button class="btn" onclick="send()">Отправить ссылку</button>
+  </section>
+</div>
+
+<script>
+let CAPTCHA_TOKEN = "";
+function onCaptcha(t){ CAPTCHA_TOKEN = t || ""; }
+
+function showMsg(t){ msg.textContent=t; msg.classList.remove("hidden"); }
+function hideMsg(){ msg.classList.add("hidden"); msg.textContent=""; }
+
+async function send(){
+  hideMsg();
+  const r = await fetch("/api/auth?action=password_reset_request", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ email: email.value.trim().toLowerCase(), captcha: CAPTCHA_TOKEN })
+  });
+  const j = await r.json().catch(()=>({}));
+  if (j.error === "CAPTCHA_FAILED") return showMsg("Подтверди капчу.");
+  showMsg("Если аккаунт существует, ссылка отправлена.");
+}
+
+(async()=>{
+  const r = await fetch("/api/config");
+  const j = await r.json().catch(()=>({}));
+  const k = j.turnstileSiteKey || "";
+  document.querySelectorAll(".cf-turnstile").forEach(el => el.setAttribute("data-sitekey", k));
+})();
+</script>
+
+</body>
+</html>
