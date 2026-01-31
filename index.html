@@ -4,17 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Exuberant</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="style.css">
+
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 </head>
 <body>
 
-<main class="layout">
-  <section class="card">
-    <header class="head">
+<main class="auth-wrap">
+  <section class="card auth-card">
+    <header class="auth-head">
       <div class="brand">Exuberant</div>
+
       <div class="tabs">
         <button id="tabReg" class="tab active" onclick="setMode('reg')">Регистрация</button>
         <button id="tabLogin" class="tab" onclick="setMode('login')">Вход</button>
@@ -23,51 +29,67 @@
 
     <div id="msg" class="msg hidden"></div>
 
-    <!-- REG FLOW -->
+    <!-- REGISTER -->
     <div id="regFlow">
       <div id="regStep1" class="block">
-        <label>Email</label>
-        <input id="regEmail" placeholder="you@example.com" autocomplete="email">
+        <label class="label">Email</label>
+        <input class="input" id="regEmail" placeholder="you@example.com" autocomplete="email">
 
-        <label>Пароль</label>
-        <input id="regPassword" type="password" placeholder="минимум 8 символов" autocomplete="new-password">
+        <label class="label">Пароль</label>
+        <input class="input" id="regPassword" type="password" placeholder="минимум 8 символов" autocomplete="new-password">
 
-        <button onclick="regSendCode()">Продолжить</button>
+        <div class="cap">
+          <div class="cf-turnstile" data-sitekey="" data-callback="onCaptcha"></div>
+        </div>
+
+        <button class="btn" onclick="regSendCode()">Продолжить</button>
+
+        <div class="hint">
+          Регистрируясь, ты подтверждаешь, что контролируешь этот email.
+        </div>
       </div>
 
       <div id="regStep2" class="block hidden">
-        <label>Код из письма</label>
-        <input id="regCode" placeholder="123456" inputmode="numeric">
+        <label class="label">Код из письма</label>
+        <input class="input" id="regCode" placeholder="123456" inputmode="numeric">
 
-        <button onclick="regVerifyCode()">Подтвердить</button>
+        <button class="btn" onclick="regVerifyCode()">Подтвердить</button>
       </div>
 
       <div id="regStep3" class="block hidden">
-        <label>Имя</label>
-        <input id="regName" placeholder="Имя" autocomplete="name">
+        <label class="label">Имя</label>
+        <input class="input" id="regName" placeholder="Имя" autocomplete="name">
 
-        <label>Username</label>
-        <input id="regUsername" placeholder="@username">
+        <label class="label">Username</label>
+        <input class="input" id="regUsername" placeholder="@username">
 
-        <button onclick="regSetup()">Завершить</button>
+        <button class="btn" onclick="regSetup()">Завершить</button>
       </div>
     </div>
 
     <!-- LOGIN -->
     <div id="loginFlow" class="hidden">
       <div class="block">
-        <label>Email</label>
-        <input id="loginEmail" placeholder="you@example.com" autocomplete="email">
+        <label class="label">Email</label>
+        <input class="input" id="loginEmail" placeholder="you@example.com" autocomplete="email">
 
-        <label>Пароль</label>
-        <input id="loginPassword" type="password" placeholder="пароль" autocomplete="current-password">
+        <label class="label">Пароль</label>
+        <input class="input" id="loginPassword" type="password" placeholder="пароль" autocomplete="current-password">
 
-        <button onclick="login()">Войти</button>
+        <div class="cap">
+          <div class="cf-turnstile" data-sitekey="" data-callback="onCaptcha"></div>
+        </div>
+
+        <button class="btn" onclick="login()">Войти</button>
+
+        <div class="row-links">
+          <a class="link" href="/reset_request.html">Забыл пароль</a>
+        </div>
       </div>
     </div>
 
-    <footer class="foot">
-      <span class="muted">exuberant.pw</span>
+    <footer class="auth-foot">
+      <span class="muted small">exuberant.pw</span>
     </footer>
   </section>
 </main>
@@ -75,119 +97,103 @@
 <script>
 let MODE = "reg";
 let REG_EMAIL = "";
+let CAPTCHA_TOKEN = "";
 
-function showMsg(text) {
-  msg.textContent = text;
-  msg.classList.remove("hidden");
-}
-function hideMsg() {
-  msg.classList.add("hidden");
-  msg.textContent = "";
-}
+const TURNSTILE_SITE_KEY = ""; // можно оставить пустым: подставим из /api/config ниже
 
-function setMode(m) {
-  MODE = m;
+function showMsg(text){ msg.textContent=text; msg.classList.remove("hidden"); }
+function hideMsg(){ msg.classList.add("hidden"); msg.textContent=""; }
+
+function setMode(m){
+  MODE=m;
   hideMsg();
-  tabReg.classList.toggle("active", m === "reg");
-  tabLogin.classList.toggle("active", m === "login");
-  regFlow.classList.toggle("hidden", m !== "reg");
-  loginFlow.classList.toggle("hidden", m !== "login");
+  tabReg.classList.toggle("active", m==="reg");
+  tabLogin.classList.toggle("active", m==="login");
+  regFlow.classList.toggle("hidden", m!=="reg");
+  loginFlow.classList.toggle("hidden", m!=="login");
 }
 
-async function post(action, data) {
+function onCaptcha(token){ CAPTCHA_TOKEN = token || ""; }
+
+async function post(action, data){
   const r = await fetch(`/api/auth?action=${action}`, {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    credentials: "include",
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    credentials:"include",
     body: JSON.stringify(data)
   });
-  return { status: r.status, json: await r.json().catch(()=>({})) };
+  return { status:r.status, json: await r.json().catch(()=>({})) };
 }
 
-async function regSendCode() {
+async function regSendCode(){
   hideMsg();
   REG_EMAIL = regEmail.value.trim().toLowerCase();
 
-  const { status, json } = await post("register_sendCode", {
+  const { json } = await post("register_sendCode", {
     email: REG_EMAIL,
-    password: regPassword.value
+    password: regPassword.value,
+    captcha: CAPTCHA_TOKEN
   });
 
+  if (json.error === "CAPTCHA_FAILED") return showMsg("Подтверди капчу.");
   if (json.error === "ACCOUNT_EXISTS") {
-    showMsg("Аккаунт с этим email уже зарегистрирован. Переключись на «Вход».");
+    showMsg("Аккаунт с этим email уже зарегистрирован. Войди в него.");
     setMode("login");
     loginEmail.value = REG_EMAIL;
     return;
   }
-  if (!json.ok) {
-    showMsg("Ошибка. Проверь email/пароль и попробуй ещё раз.");
-    return;
-  }
+  if (!json.ok) return showMsg("Ошибка. Проверь email/пароль и попробуй ещё раз.");
 
   regStep1.classList.add("hidden");
   regStep2.classList.remove("hidden");
 }
 
-async function regVerifyCode() {
+async function regVerifyCode(){
   hideMsg();
   const { json } = await post("register_verifyCode", {
     email: REG_EMAIL,
     code: regCode.value.trim()
   });
-
-  if (json.error) {
-    showMsg("Неверный код или он истёк.");
-    return;
-  }
-
+  if (json.error) return showMsg("Неверный код или он истёк.");
   regStep2.classList.add("hidden");
   regStep3.classList.remove("hidden");
 }
 
-async function regSetup() {
+async function regSetup(){
   hideMsg();
-  const { status, json } = await post("register_setup", {
+  const { json } = await post("register_setup", {
     email: REG_EMAIL,
     name: regName.value,
     username: regUsername.value
   });
-
-  if (json.error === "USERNAME_TAKEN") {
-    showMsg("Этот username занят.");
-    return;
-  }
-  if (!json.ok) {
-    showMsg("Ошибка. Проверь имя/username.");
-    return;
-  }
-
+  if (json.error === "USERNAME_TAKEN") return showMsg("Этот username занят.");
+  if (!json.ok) return showMsg("Ошибка. Проверь имя/username.");
   location.href = "/forum.html";
 }
 
-async function login() {
+async function login(){
   hideMsg();
-  const { status, json } = await post("login", {
+  const { json } = await post("login", {
     email: loginEmail.value.trim().toLowerCase(),
-    password: loginPassword.value
+    password: loginPassword.value,
+    captcha: CAPTCHA_TOKEN
   });
 
-  if (json.error === "NO_ACCOUNT") {
-    showMsg("Аккаунт не найден. Переключись на «Регистрация».");
-    setMode("reg");
-    regEmail.value = loginEmail.value;
-    return;
-  }
-  if (json.error === "BAD_CREDENTIALS") {
-    showMsg("Неверный email или пароль.");
-    return;
-  }
-  if (!json.ok) {
-    showMsg("Ошибка входа.");
-    return;
-  }
+  if (json.error === "CAPTCHA_FAILED") return showMsg("Подтверди капчу.");
+  if (json.error === "NO_ACCOUNT") return showMsg("Аккаунт не найден. Зарегистрируйся.");
+  if (json.error === "BAD_CREDENTIALS") return showMsg("Неверный email или пароль.");
+  if (!json.ok) return showMsg("Ошибка входа.");
 
   location.href = "/forum.html";
 }
+
+// подставим sitekey в оба виджета из /api/config
+(async()=>{
+  const r = await fetch("/api/config");
+  const j = await r.json().catch(()=>({}));
+  const k = j.turnstileSiteKey || "";
+  document.querySelectorAll(".cf-turnstile").forEach(el => el.setAttribute("data-sitekey", k));
+})();
 </script>
 
 </body>
