@@ -1,21 +1,28 @@
+/* === AUTH LAYOUT === */
+
 .auth-wrap{
   min-height:100vh;
-  display:grid;
-  place-items:center;
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
   padding:24px;
 }
 
 .auth-card{
   width:100%;
-  max-width:440px;
-  padding:18px;
+  max-width:420px;
+  padding:20px;
 }
+
+/* === HEADER === */
 
 .auth-head{
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:12px;
+  width:100%;
 }
 
 .brand{
@@ -23,9 +30,11 @@
   letter-spacing:.2px;
 }
 
+/* === TABS === */
+
 .tabs{
   display:flex;
-  gap:8px;
+  gap:6px;
   background:#0f0f0f;
   border:1px solid var(--border);
   border-radius:12px;
@@ -33,6 +42,7 @@
 }
 
 .tab{
+  flex:1;
   border:none;
   background:transparent;
   color:var(--muted);
@@ -41,21 +51,62 @@
   cursor:pointer;
   font-weight:800;
   font-size:13px;
+  text-align:center;
 }
+
 .tab.active{
   color:#000;
   background:var(--accent);
 }
 
-.block{margin-top:14px}
-.cap{margin:10px 0 12px}
+/* === FORM BLOCKS === */
+
+.block{
+  margin-top:14px;
+}
+
+.cap{
+  margin:10px 0 12px;
+}
+
 .hint{
   margin-top:10px;
   color:var(--muted);
   font-size:12px;
   line-height:1.35;
 }
-.row-links{margin-top:10px; display:flex; justify-content:flex-end}
-.link{color:var(--muted); font-size:12px}
-.link:hover{color:var(--text)}
-.auth-foot{margin-top:14px; text-align:center}
+
+.row-links{
+  margin-top:10px;
+  display:flex;
+  justify-content:flex-end;
+}
+
+.link{
+  color:var(--muted);
+  font-size:12px;
+}
+
+.link:hover{
+  color:var(--text);
+}
+
+/* === FOOTER === */
+
+.auth-foot{
+  margin-top:14px;
+  text-align:center;
+}
+
+/* === MOBILE FIXES === */
+
+@media (max-width:480px){
+  .auth-card{
+    padding:18px;
+    border-radius:14px;
+  }
+
+  .tabs{
+    width:100%;
+  }
+}
