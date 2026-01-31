@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Set new password — Exuberant</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="base.css">
+  <link rel="stylesheet" href="reset.css">
+</head>
+<body>
+
+<div class="container reset-wrap">
+  <header class="topbar">
+    <div class="title">New password</div>
+    <div class="right">
+      <button class="btn-ghost" onclick="location.href='/index.html'">Back</button>
+    </div>
+  </header>
+
+  <section class="card reset-card">
+    <div id="msg" class="msg hidden"></div>
+
+    <label class="label">Новый пароль</label>
+    <input class="input" id="pw" type="password" placeholder="минимум 8 символов">
+
+    <button class="btn" onclick="save()">Сохранить</button>
+  </section>
+</div>
+
+<script>
+const token = new URLSearchParams(location.search).get("token") || "";
+
+function showMsg(t){ msg.textContent=t; msg.classList.remove("hidden"); }
+function hideMsg(){ msg.classList.add("hidden"); msg.textContent=""; }
+
+async function save(){
+  hideMsg();
+  const r = await fetch("/api/auth?action=password_reset_confirm", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ token, password: pw.value })
+  });
+  const j = await r.json().catch(()=>({}));
+  if (j.error === "INVALID_TOKEN") return showMsg("Ссылка недействительна или истекла.");
+  if (j.error === "BAD_PASSWORD") return showMsg("Пароль слишком короткий.");
+  if (!j.ok) return showMsg("Ошибка.");
+  showMsg("Пароль обновлён. Теперь можно войти.");
+}
+</script>
+
+</body>
+</html>
