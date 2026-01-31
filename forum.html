@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Exuberant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="forum.css" />
+</head>
+<body>
+
+<div class="app">
+  <header class="topbar">
+    <div class="left">
+      <div class="title">Exuberant</div>
+      <div class="sub" id="who"></div>
+    </div>
+    <button class="ghost" onclick="location.href='/settings.html'">Settings</button>
+  </header>
+
+  <main class="feed" id="feed"></main>
+</div>
+
+<nav class="bottom">
+  <button class="nav active" data-tab="feed" onclick="setTab('feed')">
+    <span class="icon"></span><span class="label">Feed</span>
+  </button>
+  <button class="nav" data-tab="search" onclick="setTab('search')">
+    <span class="icon"></span><span class="label">Search</span>
+  </button>
+  <button class="nav center" data-tab="create" onclick="setTab('create')">
+    <span class="icon"></span>
+  </button>
+  <button class="nav" data-tab="profile" onclick="location.href='/settings.html'">
+    <span class="icon"></span><span class="label">Profile</span>
+  </button>
+</nav>
+
+<script>
+async function apiMe() {
+  const r = await fetch("/api/profile", { method:"GET", credentials:"include" });
+  if (r.status === 401) location.href = "/index.html";
+  return r.json();
+}
+
+function setTab(tab){
+  document.querySelectorAll(".nav").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  // Пока без заглушек. Контент потом подтянем из БД.
+}
+
+(async () => {
+  const me = await apiMe();
+  who.textContent = `@${me.username}`;
+})();
+</script>
+
+</body>
+</html>
