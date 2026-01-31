@@ -1,46 +1,25 @@
-:root{
-  --bg:#0b0b0b;
-  --panel:#121212;
-  --border:#1f1f1f;
-  --text:#eaeaea;
-  --muted:#8c8c8c;
-  --accent:#1db954;
-}
-
-*{box-sizing:border-box}
-body{
-  margin:0;
-  background:var(--bg);
-  color:var(--text);
-  font-family:Inter,system-ui,sans-serif;
-}
-
-.layout{
+.auth-wrap{
   min-height:100vh;
   display:grid;
   place-items:center;
   padding:24px;
 }
 
-.card{
+.auth-card{
   width:100%;
-  max-width:420px;
-  background:rgba(18,18,18,.92);
-  border:1px solid var(--border);
-  border-radius:16px;
-  padding:22px;
+  max-width:440px;
+  padding:18px;
 }
 
-.head{
+.auth-head{
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:14px;
-  margin-bottom:14px;
+  gap:12px;
 }
 
 .brand{
-  font-weight:700;
+  font-weight:900;
   letter-spacing:.2px;
 }
 
@@ -60,66 +39,23 @@ body{
   padding:8px 10px;
   border-radius:10px;
   cursor:pointer;
-  font-weight:600;
+  font-weight:800;
   font-size:13px;
 }
-
 .tab.active{
   color:#000;
   background:var(--accent);
 }
 
-.block{ margin-top:14px; }
-
-label{
-  display:block;
-  font-size:12px;
+.block{margin-top:14px}
+.cap{margin:10px 0 12px}
+.hint{
+  margin-top:10px;
   color:var(--muted);
-  margin:0 0 6px;
-}
-
-input{
-  width:100%;
-  padding:14px 12px;
-  margin-bottom:12px;
-  background:#0b0b0b;
-  border:1px solid var(--border);
-  border-radius:12px;
-  color:var(--text);
-  font-size:14px;
-  outline:none;
-}
-
-input:focus{ border-color:var(--accent); }
-
-button{
-  width:100%;
-  padding:13px 12px;
-  border:none;
-  border-radius:12px;
-  background:var(--accent);
-  color:#000;
-  font-weight:700;
-  cursor:pointer;
-}
-
-button:hover{ opacity:.92; }
-
-.msg{
-  margin-top:12px;
-  padding:10px 12px;
-  border-radius:12px;
-  border:1px solid var(--border);
-  background:#0f0f0f;
-  color:var(--text);
-  font-size:13px;
+  font-size:12px;
   line-height:1.35;
 }
-
-.foot{
-  margin-top:16px;
-  text-align:center;
-}
-
-.muted{ color:var(--muted); font-size:12px; }
-.hidden{ display:none; }
+.row-links{margin-top:10px; display:flex; justify-content:flex-end}
+.link{color:var(--muted); font-size:12px}
+.link:hover{color:var(--text)}
+.auth-foot{margin-top:14px; text-align:center}
