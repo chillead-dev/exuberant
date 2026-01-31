@@ -4,94 +4,189 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Exuberant</title>
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
 <main class="layout">
-  <section class="auth">
-
-    <header class="header">
-      <h1>Exuberant</h1>
-      <p class="subtitle">
-        форум.<br>
-      </p>
+  <section class="card">
+    <header class="head">
+      <div class="brand">Exuberant</div>
+      <div class="tabs">
+        <button id="tabReg" class="tab active" onclick="setMode('reg')">Регистрация</button>
+        <button id="tabLogin" class="tab" onclick="setMode('login')">Вход</button>
+      </div>
     </header>
 
-    <!-- STEP 1 -->
-    <div id="step1" class="block">
-      <label>Email</label>
-      <input id="email" placeholder="you@example.com">
+    <div id="msg" class="msg hidden"></div>
 
-      <label>Пароль</label>
-      <input id="password" type="password" placeholder="••••••••">
+    <!-- REG FLOW -->
+    <div id="regFlow">
+      <div id="regStep1" class="block">
+        <label>Email</label>
+        <input id="regEmail" placeholder="you@example.com" autocomplete="email">
 
-      <button onclick="sendCode()">Продолжить</button>
+        <label>Пароль</label>
+        <input id="regPassword" type="password" placeholder="минимум 8 символов" autocomplete="new-password">
+
+        <button onclick="regSendCode()">Продолжить</button>
+      </div>
+
+      <div id="regStep2" class="block hidden">
+        <label>Код из письма</label>
+        <input id="regCode" placeholder="123456" inputmode="numeric">
+
+        <button onclick="regVerifyCode()">Подтвердить</button>
+      </div>
+
+      <div id="regStep3" class="block hidden">
+        <label>Имя</label>
+        <input id="regName" placeholder="Имя" autocomplete="name">
+
+        <label>Username</label>
+        <input id="regUsername" placeholder="@username">
+
+        <button onclick="regSetup()">Завершить</button>
+      </div>
     </div>
 
-    <!-- STEP 2 -->
-    <div id="step2" class="block hidden">
-      <label>Код из письма</label>
-      <input id="code" placeholder="123456">
+    <!-- LOGIN -->
+    <div id="loginFlow" class="hidden">
+      <div class="block">
+        <label>Email</label>
+        <input id="loginEmail" placeholder="you@example.com" autocomplete="email">
 
-      <button onclick="verify()">Подтвердить</button>
+        <label>Пароль</label>
+        <input id="loginPassword" type="password" placeholder="пароль" autocomplete="current-password">
+
+        <button onclick="login()">Войти</button>
+      </div>
     </div>
 
-    <!-- STEP 3 -->
-    <div id="step3" class="block hidden">
-      <label>Имя</label>
-      <input id="name" placeholder="Alex">
-
-      <label>Username</label>
-      <input id="username" placeholder="@username">
-
-      <button onclick="finish()">Завершить</button>
-    </div>
-
-    <footer class="footer">
-      <span>© exuberant.pw</span>
+    <footer class="foot">
+      <span class="muted">exuberant.pw</span>
     </footer>
-
   </section>
 </main>
 
 <script>
-let EMAIL = "";
+let MODE = "reg";
+let REG_EMAIL = "";
 
-const api = (action, data) =>
-  fetch(`/api/auth?action=${action}`, {
+function showMsg(text) {
+  msg.textContent = text;
+  msg.classList.remove("hidden");
+}
+function hideMsg() {
+  msg.classList.add("hidden");
+  msg.textContent = "";
+}
+
+function setMode(m) {
+  MODE = m;
+  hideMsg();
+  tabReg.classList.toggle("active", m === "reg");
+  tabLogin.classList.toggle("active", m === "login");
+  regFlow.classList.toggle("hidden", m !== "reg");
+  loginFlow.classList.toggle("hidden", m !== "login");
+}
+
+async function post(action, data) {
+  const r = await fetch(`/api/auth?action=${action}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {"Content-Type":"application/json"},
+    credentials: "include",
     body: JSON.stringify(data)
-  }).then(r => r.json());
-
-async function sendCode() {
-  EMAIL = email.value;
-  await api("sendCode", { email: EMAIL, password: password.value });
-  step1.classList.add("hidden");
-  step2.classList.remove("hidden");
-}
-
-async function verify() {
-  const r = await api("verifyCode", { email: EMAIL, code: code.value });
-  if (r.type) {
-    step2.classList.add("hidden");
-    step3.classList.remove("hidden");
-  }
-}
-
-async function finish() {
-  await api("setup", {
-    email: EMAIL,
-    name: name.value,
-    username: username.value
   });
-  alert("Добро пожаловать в Exuberant");
+  return { status: r.status, json: await r.json().catch(()=>({})) };
+}
+
+async function regSendCode() {
+  hideMsg();
+  REG_EMAIL = regEmail.value.trim().toLowerCase();
+
+  const { status, json } = await post("register_sendCode", {
+    email: REG_EMAIL,
+    password: regPassword.value
+  });
+
+  if (json.error === "ACCOUNT_EXISTS") {
+    showMsg("Аккаунт с этим email уже зарегистрирован. Переключись на «Вход».");
+    setMode("login");
+    loginEmail.value = REG_EMAIL;
+    return;
+  }
+  if (!json.ok) {
+    showMsg("Ошибка. Проверь email/пароль и попробуй ещё раз.");
+    return;
+  }
+
+  regStep1.classList.add("hidden");
+  regStep2.classList.remove("hidden");
+}
+
+async function regVerifyCode() {
+  hideMsg();
+  const { json } = await post("register_verifyCode", {
+    email: REG_EMAIL,
+    code: regCode.value.trim()
+  });
+
+  if (json.error) {
+    showMsg("Неверный код или он истёк.");
+    return;
+  }
+
+  regStep2.classList.add("hidden");
+  regStep3.classList.remove("hidden");
+}
+
+async function regSetup() {
+  hideMsg();
+  const { status, json } = await post("register_setup", {
+    email: REG_EMAIL,
+    name: regName.value,
+    username: regUsername.value
+  });
+
+  if (json.error === "USERNAME_TAKEN") {
+    showMsg("Этот username занят.");
+    return;
+  }
+  if (!json.ok) {
+    showMsg("Ошибка. Проверь имя/username.");
+    return;
+  }
+
+  location.href = "/forum.html";
+}
+
+async function login() {
+  hideMsg();
+  const { status, json } = await post("login", {
+    email: loginEmail.value.trim().toLowerCase(),
+    password: loginPassword.value
+  });
+
+  if (json.error === "NO_ACCOUNT") {
+    showMsg("Аккаунт не найден. Переключись на «Регистрация».");
+    setMode("reg");
+    regEmail.value = loginEmail.value;
+    return;
+  }
+  if (json.error === "BAD_CREDENTIALS") {
+    showMsg("Неверный email или пароль.");
+    return;
+  }
+  if (!json.ok) {
+    showMsg("Ошибка входа.");
+    return;
+  }
+
+  location.href = "/forum.html";
 }
 </script>
 
