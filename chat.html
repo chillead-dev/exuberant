@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chat — Exuberant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/base.css">
+  <link rel="stylesheet" href="/chat.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="title" id="title">Chat</div>
+  <div class="right">
+    <button class="btn-ghost" onclick="location.href='/search.html'">Back</button>
+  </div>
+</header>
+
+<main class="container chat-wrap">
+  <section class="card chat-card">
+    <div id="status" class="muted small">Initializing…</div>
+    <div id="log" class="log"></div>
+
+    <div class="composer">
+      <textarea class="textarea" id="text" placeholder="Message…"></textarea>
+      <button class="btn" id="sendBtn" onclick="send()" disabled>Send</button>
+    </div>
+  </section>
+</main>
+
+<script>
+/**
+ * E2E crypto design:
+ * - long-term ECDH keypair P-256 stored locally in localStorage (JWK)
+ * - public key uploaded to server profile (api/keys set)
+ * - shared secret = ECDH(priv, peerPub)
+ * - derive AES-GCM key via HKDF(salt=threadId)
+ * - encrypt/decrypt with AES-GCM; server stores only {nonce,ciphertext}
+ */
+
+const params = new URLSearchParams(location.search);
+const peerUsername = decodeURIComponent(params.get("u") || "");
+const statusEl = document.getElementById("status");
+const logEl = document.getElementById("log");
+const sendBtn = document.getElementById("sendBtn");
+
+let ME = null;
+let PEER = null;
+let THREAD = null;
+let AES_KEY = null;
+let lastId = 0;
+
+function esc(s){
+  return String(s||"").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function b64uToBytes(b64u){
+  b64u = b64u.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64u.length % 4 ? "=".repeat(4 - (b64u.length % 4)) : "";
+  const bin = atob(b64u + pad);
+  const bytes = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function bytesToB64u(bytes){
+  let bin = "";
+  bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+
+async function apiMe(){
+  const r = await fetch("/api/profile", { credentials:"include" });
+  if (r.status === 401) location.href="/index.html";
+  return r.json();
+}
+async function apiUserByUsername(username){
+  const r = await fetch(`/api/users?exact=1&u=${encodeURIComponent(username)}`, { credentials:"include" });
+  if (r.status === 401) location.href="/index.html";
+  const j = await r.json();
+  return j.user || null;
+}
+async function apiGetKey(username){
+  const r = await fetch(`/api/keys?u=${encodeURIComponent(username)}`, { credentials:"include" });
+  if (r.status === 401) location.href="/index.html";
+  return r.json();
+}
+async function apiSetMyKey(pubJwk){
+  const r = await fetch("/api/keys", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    credentials:"include",
+    body: JSON.stringify({ pubJwk })
+  });
+  if (r.status === 401) location.href="/index.html";
+  return r.json();
+}
+async function apiDmInit(peerUsername){
+  const r = await fetch(`/api/dm?action=init&u=${encodeURIComponent(peerUsername)}`, { credentials:"include" });
+  if (r.status === 401) location.href="/index.html";
+  return r.json();
+}
+async function apiDmSend(threadId, payload){
+  const r = await fetch("/api/dm?action=send", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    credentials:"include",
+    body: JSON.stringify({ threadId, ...payload })
+  });
+  if (r.status === 401) location.href="/index.html";
+  return r.json();
+}
+async function apiDmFetch(threadId, afterId){
+  const r = await fetch(`/api/dm?action=fetch&threadId=${encodeURIComponent(threadId)}&after=${encodeURIComponent(afterId)}`, { credentials:"include" });
+  if (r.status === 401) location.href="/index.html";
+  return r.json();
+}
+
+// ----- key management -----
+async function loadOrCreateKeypair(){
+  const raw = localStorage.getItem("exu_e2e_kp");
+  if (raw){
+    try{
+      const obj = JSON.parse(raw);
+      return obj; // {pubJwk, privJwk}
+    }catch{}
+  }
+
+  statusEl.textContent = "Generating keys…";
+  const kp = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveKey","deriveBits"]
+  );
+
+  const pubJwk = await crypto.subtle.exportKey("jwk", kp.publicKey);
+  const privJwk = await crypto.subtle.exportKey("jwk", kp.privateKey);
+  const obj = { pubJwk, privJwk, createdAt: Date.now() };
+  localStorage.setItem("exu_e2e_kp", JSON.stringify(obj));
+  return obj;
+}
+
+async function importPriv(jwk){
+  return crypto.subtle.importKey("jwk", jwk, { name:"ECDH", namedCurve:"P-256" }, true, ["deriveKey","deriveBits"]);
+}
+async function importPub(jwk){
+  return crypto.subtle.importKey("jwk", jwk, { name:"ECDH", namedCurve:"P-256" }, true, []);
+}
+
+async function hkdfAesKey(sharedBits, saltStr){
+  const salt = new TextEncoder().encode(saltStr);
+  const keyMaterial = await crypto.subtle.importKey("raw", sharedBits, "HKDF", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name:"HKDF", hash:"SHA-256", salt, info: new Uint8Array([]) },
+    keyMaterial,
+    { name:"AES-GCM", length: 256 },
+    false,
+    ["encrypt","decrypt"]
+  );
+}
+
+async function deriveThreadKey(myPrivJwk, peerPubJwk, threadId){
+  const myPriv = await importPriv(myPrivJwk);
+  const peerPub = await importPub(peerPubJwk);
+  const bits = await crypto.subtle.deriveBits({ name:"ECDH", public: peerPub }, myPriv, 256);
+  return hkdfAesKey(bits, "exu:" + threadId);
+}
+
+// ----- encrypt/decrypt -----
+async function encryptText(aesKey, plain){
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const pt = new TextEncoder().encode(plain);
+  const ct = await crypto.subtle.encrypt({ name:"AES-GCM", iv: nonce }, aesKey, pt);
+  return {
+    nonce: bytesToB64u(nonce),
+    ciphertext: bytesToB64u(new Uint8Array(ct))
+  };
+}
+async function decryptText(aesKey, nonceB64u, ctB64u){
+  const nonce = b64uToBytes(nonceB64u);
+  const ct = b64uToBytes(ctB64u);
+  const pt = await crypto.subtle.decrypt({ name:"AES-GCM", iv: nonce }, aesKey, ct);
+  return new TextDecoder().decode(pt);
+}
+
+// ----- UI -----
+function addBubble(who, text, mine){
+  const el = document.createElement("div");
+  el.className = "msg-row " + (mine ? "mine" : "theirs");
+  el.innerHTML = `
+    <div class="bubble">
+      <div class="who">${esc(who)}</div>
+      <div class="txt">${esc(text)}</div>
+    </div>
+  `;
+  logEl.appendChild(el);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setReady(on){
+  sendBtn.disabled = !on;
+}
+
+document.getElementById("text").addEventListener("input", () => {
+  const v = document.getElementById("text").value.trim();
+  setReady(!!(AES_KEY && v));
+});
+
+// ----- main -----
+async function init(){
+  if (!peerUsername) {
+    statusEl.textContent = "No user specified.";
+    return;
+  }
+
+  ME = await apiMe();
+  title.textContent = "@" + peerUsername;
+
+  // Ensure we have local keypair
+  const kp = await loadOrCreateKeypair();
+
+  // Upload my public key if server doesn't have it
+  const myKeyInfo = await apiGetKey(ME.username);
+  if (!myKeyInfo.pubJwk) {
+    await apiSetMyKey(kp.pubJwk);
+  }
+
+  // Load peer profile & pub key
+  PEER = await apiUserByUsername(peerUsername);
+  if (!PEER) {
+    statusEl.textContent = "User not found.";
+    return;
+  }
+
+  const peerKeyInfo = await apiGetKey(peerUsername);
+  if (!peerKeyInfo.pubJwk) {
+    statusEl.textContent = "User has no encryption key yet (ask them to open chat once).";
+    return;
+  }
+
+  // Initialize thread (server gives threadId)
+  const dm = await apiDmInit(peerUsername);
+  THREAD = dm.threadId;
+
+  // Derive AES key
+  AES_KEY = await deriveThreadKey(kp.privJwk, peerKeyInfo.pubJwk, THREAD);
+
+  statusEl.textContent = "Encrypted chat ready.";
+  setReady(false);
+
+  await poll();
+  setInterval(poll, 2500);
+}
+
+async function poll(){
+  if (!THREAD || !AES_KEY) return;
+  const j = await apiDmFetch(THREAD, lastId);
+  const msgs = j.messages || [];
+  for (const m of msgs){
+    lastId = Math.max(lastId, m.id);
+    try{
+      const text = await decryptText(AES_KEY, m.nonce, m.ciphertext);
+      const mine = (m.from === ME.email);
+      const who = mine ? ("@" + ME.username) : ("@" + peerUsername);
+      addBubble(who, text, mine);
+    }catch{
+      addBubble("system", "[cannot decrypt]", false);
+    }
+  }
+}
+
+async function send(){
+  const ta = document.getElementById("text");
+  const plain = ta.value.trim();
+  if (!plain || !AES_KEY) return;
+
+  ta.value = "";
+  setReady(false);
+
+  const enc = await encryptText(AES_KEY, plain);
+  const resp = await apiDmSend(THREAD, enc);
+
+  if (!resp.ok) {
+    statusEl.textContent = "Send failed.";
+    return;
+  }
+  statusEl.textContent = "Encrypted chat ready.";
+}
+
+init();
+</script>
+
+</body>
+</html>
