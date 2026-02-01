@@ -1,100 +1,52 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Exuberant</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="base.css">
-  <link rel="stylesheet" href="forum.css">
+  <link rel="stylesheet" href="/base.css">
+  <link rel="stylesheet" href="/forum-ui.css">
 </head>
 <body>
 
 <header class="topbar">
   <div class="title">Exuberant</div>
   <div class="right">
-    <span id="meTag" class="pill hidden"></span>
-    <button class="btn-ghost" onclick="location.href='/settings.html'">Settings</button>
+    <button class="btn-ghost" onclick="location.href='/search.html'">Найти пользователя</button>
+    <button class="btn-ghost" onclick="location.href='/settings.html'">Профиль</button>
   </div>
 </header>
 
-<main class="container">
-  <div class="feed-head">
-    <div class="feed-title">Feed</div>
-    <div class="feed-actions">
-      <input class="input search" id="q" placeholder="Search…" oninput="render()">
-      <button class="btn-ghost" onclick="refresh()">Refresh</button>
-    </div>
-  </div>
-
-  <div id="empty" class="empty hidden">
-    Пока нет постов.
-  </div>
-
-  <section id="feed" class="feed"></section>
+<main class="container page-pad">
+  <section class="feed" id="feed"></section>
 </main>
 
 <nav class="bottom-nav">
   <button class="nav-item active" onclick="location.href='/forum.html'">Feed</button>
+  <button class="nav-item" onclick="location.href='/search.html'">Search</button>
   <button class="nav-item" onclick="location.href='/create.html'">New</button>
   <button class="nav-item" onclick="location.href='/settings.html'">Profile</button>
 </nav>
 
 <script>
-let POSTS = [];
-let ME = null;
-
-function esc(s){ return String(s||"").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-async function apiMe(){
-  const r = await fetch("/api/profile", { credentials:"include" });
-  if (r.status === 401) location.href="/index.html";
-  return r.json();
-}
-async function apiPosts(){
+async function loadFeed(){
   const r = await fetch("/api/posts", { credentials:"include" });
   if (r.status === 401) location.href="/index.html";
-  return r.json();
+  const j = await r.json();
+  feed.innerHTML = j.posts.map(p => `
+    <div class="post-card" onclick="location.href='/post.html?id=${p.id}'">
+      <div class="post-title">${p.title}</div>
+      <div class="post-meta">@${p.username}</div>
+      <div class="post-snippet">${p.body.slice(0,120)}…</div>
+    </div>
+  `).join("");
 }
-
-function card(post){
-  const dt = new Date(post.createdAt || Date.now());
-  const meta = `${esc(post.authorTag || post.author || "")} · ${dt.toLocaleString()}`;
-  return `
-    <article class="post-card" onclick="location.href='/post.html?id=${encodeURIComponent(post.id)}'">
-      <div class="post-title">${esc(post.title)}</div>
-      <div class="post-meta">${meta}</div>
-      <div class="post-snippet">${post.snippet || ""}</div>
-    </article>
-  `;
-}
-
-function render(){
-  const term = q.value.trim().toLowerCase();
-  const filtered = term
-    ? POSTS.filter(p => (p.title||"").toLowerCase().includes(term))
-    : POSTS;
-
-  empty.classList.toggle("hidden", filtered.length !== 0);
-  feed.innerHTML = filtered.map(card).join("");
-}
-
-async function refresh(){
-  POSTS = await apiPosts();
-  render();
-}
-
-(async()=>{
-  ME = await apiMe();
-  meTag.textContent = "@"+(ME.username||"");
-  meTag.classList.remove("hidden");
-
-  await refresh();
-})();
+loadFeed();
 </script>
 
 </body>
