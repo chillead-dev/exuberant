@@ -7,8 +7,8 @@ const RESEND_KEY = process.env.RESEND_API_KEY;
 const SITE_NAME = process.env.SITE_NAME || "exuberant";
 const SITE_DOMAIN = process.env.SITE_DOMAIN || "exuberant.pw";
 
-const AUTH_SECRET = process.env.AUTH_SECRET || "";
-const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET || ""; // ← ВАЖНО: это secret key из Google reCAPTCHA
+const AUTH_SECRET = process.env.AUTH_SECRET || "7a1c3c2e0d8f9e6b4a8d9f3c7e1b2a4c";
+const RECAPTCHA_SECRET = process.env.RECAPTCHA_SECRET || "6Ldyd10sAAAAAFYXwQLID3ESb5DM4gL5QwvpJX0i"; // ← ВАЖНО: это secret key из Google reCAPTCHA
 
 if (!REDIS_URL || !REDIS_TOKEN) throw new Error("Upstash env missing");
 if (!RESEND_KEY) throw new Error("Resend env missing");
