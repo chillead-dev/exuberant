@@ -1,65 +1,28 @@
-import crypto from "crypto";
-import { marked } from "marked";
-import DOMPurify from "isomorphic-dompurify";
+import { requireAuth, redis } from "./_lib.js";
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+export default async function handler(req,res){
+  const email = await requireAuth(req,res);
 
-async function redis(cmd, ...args) {
-  const r = await fetch(`${REDIS_URL}/${cmd}/${args.map(encodeURIComponent).join("/")}`, {
-    headers: { Authorization: `Bearer ${REDIS_TOKEN}` }
-  });
-  return r.json();
-}
-
-function getSid(req) {
-  const c = String(req.headers.cookie || "");
-  return (c.match(/(?:^|;\s*)sid=([^;]+)/) || [])[1];
-}
-
-function sanitize(md) {
-  const html = marked.parse(md, { mangle: false, headerIds: false });
-  return DOMPurify.sanitize(html);
-}
-
-export default async function handler(req, res) {
-  const sid = getSid(req);
-  if (!sid) return res.status(401).end();
-
-  const se = await redis("get", `sess:${sid}`);
-  if (!se.result) return res.status(401).end();
-
-  const email = se.result;
-
-  if (req.method === "POST") {
+  if (req.method === "POST"){
     const { title, body } = req.body || {};
-    if (!title || !body) return res.status(400).end();
+    if (!title || title.length < 3)
+      return res.json({ ok:false, error:"BAD_TITLE" });
+    if (!body || body.length < 10)
+      return res.json({ ok:false, error:"BAD_BODY" });
 
-    const id = crypto.randomBytes(8).toString("hex");
-
-    await redis("set", `post:${id}`, JSON.stringify({
-      id,
-      title: title.trim(),
-      body: sanitize(body),
-      author: email,
-      createdAt: Date.now()
-    }));
-
-    await redis("lpush", "posts", id);
-    return res.json({ ok: true });
+    const id = Date.now().toString();
+    await redis("set",`post:${id}`,JSON.stringify({ id,title,body,email }));
+    await redis("lpush","posts",id);
+    return res.json({ ok:true });
   }
 
-  if (req.method === "GET") {
-    const list = await redis("lrange", "posts", 0, 20);
-    const posts = [];
-
-    for (const id of list.result || []) {
-      const p = await redis("get", `post:${id}`);
+  if (req.method === "GET"){
+    const ids = (await redis("lrange","posts","0","20")).result||[];
+    const posts=[];
+    for (const id of ids){
+      const p = await redis("get",`post:${id}`);
       if (p.result) posts.push(JSON.parse(p.result));
     }
-
-    return res.json(posts);
+    return res.json({ posts });
   }
-
-  res.status(405).end();
 }
