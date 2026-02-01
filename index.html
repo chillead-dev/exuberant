@@ -11,29 +11,6 @@
 
   <link rel="stylesheet" href="/base.css">
   <link rel="stylesheet" href="/style.css">
-
-  <!-- reCAPTCHA v2 checkbox -->
-  <script>
-    // ВСТАВЬ СЮДА СВОЙ РАБОЧИЙ SITE KEY (v2 checkbox, домен exuberant.pw)
-    const RECAPTCHA_SITE_KEY = "6Ldyd10sAAAAAFYXwQLID3ESb5DM4gL5QwvpJX0i";
-
-    let WIDGET_REG = null;
-    let WIDGET_LOGIN = null;
-
-    function onRecaptchaLoad() {
-      // Рендерим вручную, чтобы два виджета работали корректно
-      const regEl = document.getElementById("recaptcha-reg");
-      const loginEl = document.getElementById("recaptcha-login");
-
-      if (regEl) {
-        WIDGET_REG = grecaptcha.render(regEl, { sitekey: RECAPTCHA_SITE_KEY });
-      }
-      if (loginEl) {
-        WIDGET_LOGIN = grecaptcha.render(loginEl, { sitekey: RECAPTCHA_SITE_KEY });
-      }
-    }
-  </script>
-  <script src="https://www.google.com/recaptcha/api.js?onload=onRecaptchaLoad&render=explicit" async defer></script>
 </head>
 <body>
 
@@ -42,7 +19,6 @@
 
     <header class="auth-head">
       <div class="brand">Exuberant</div>
-
       <div class="tabs">
         <button id="tabReg" class="tab active" onclick="setMode('reg')">Регистрация</button>
         <button id="tabLogin" class="tab" onclick="setMode('login')">Вход</button>
@@ -51,57 +27,49 @@
 
     <div id="msg" class="msg hidden"></div>
 
-    <!-- REGISTER FLOW -->
+    <!-- REGISTRATION -->
     <div id="regFlow">
+
       <div id="regStep1" class="block">
         <label class="label">Email</label>
-        <input class="input" id="regEmail" placeholder="you@example.com" autocomplete="email">
+        <input class="input" id="regEmail" autocomplete="email">
 
         <label class="label">Пароль</label>
-        <input class="input" id="regPassword" type="password" placeholder="минимум 8 символов" autocomplete="new-password">
-
-        <div class="cap">
-          <div id="recaptcha-reg"></div>
-        </div>
+        <input class="input" id="regPassword" type="password" autocomplete="new-password">
 
         <button class="btn" onclick="regSendCode()">Продолжить</button>
       </div>
 
       <div id="regStep2" class="block hidden">
         <label class="label">Код из письма</label>
-        <input class="input" id="regCode" placeholder="123456" inputmode="numeric">
+        <input class="input" id="regCode">
         <button class="btn" onclick="regVerifyCode()">Подтвердить</button>
       </div>
 
       <div id="regStep3" class="block hidden">
         <label class="label">Имя</label>
-        <input class="input" id="regName" placeholder="Имя">
+        <input class="input" id="regName">
 
         <label class="label">Username</label>
-        <input class="input" id="regUsername" placeholder="@username">
+        <input class="input" id="regUsername">
 
         <button class="btn" onclick="regSetup()">Завершить</button>
       </div>
+
     </div>
 
-    <!-- LOGIN FLOW -->
+    <!-- LOGIN -->
     <div id="loginFlow" class="hidden">
-      <div class="block">
-        <label class="label">Email</label>
-        <input class="input" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+      <label class="label">Email</label>
+      <input class="input" id="loginEmail" autocomplete="email">
 
-        <label class="label">Пароль</label>
-        <input class="input" id="loginPassword" type="password" placeholder="пароль" autocomplete="current-password">
+      <label class="label">Пароль</label>
+      <input class="input" id="loginPassword" type="password" autocomplete="current-password">
 
-        <div class="cap">
-          <div id="recaptcha-login"></div>
-        </div>
+      <button class="btn" onclick="login()">Войти</button>
 
-        <button class="btn" onclick="login()">Войти</button>
-
-        <div class="row-links">
-          <a class="link" href="/reset_request.html">Забыл пароль</a>
-        </div>
+      <div class="row-links">
+        <a class="link" href="/reset_request.html">Забыл пароль</a>
       </div>
     </div>
 
@@ -111,14 +79,20 @@
 <script>
 let REG_EMAIL = "";
 
-function showMsg(text){ msg.textContent = text; msg.classList.remove("hidden"); }
-function hideMsg(){ msg.classList.add("hidden"); msg.textContent = ""; }
+function showMsg(t){
+  msg.textContent = t;
+  msg.classList.remove("hidden");
+}
+function hideMsg(){
+  msg.classList.add("hidden");
+  msg.textContent = "";
+}
 
 function setMode(m){
-  tabReg.classList.toggle("active", m === "reg");
-  tabLogin.classList.toggle("active", m === "login");
-  regFlow.classList.toggle("hidden", m !== "reg");
-  loginFlow.classList.toggle("hidden", m !== "login");
+  tabReg.classList.toggle("active", m==="reg");
+  tabLogin.classList.toggle("active", m==="login");
+  regFlow.classList.toggle("hidden", m!=="reg");
+  loginFlow.classList.toggle("hidden", m!=="login");
   hideMsg();
 }
 
@@ -130,28 +104,14 @@ async function post(action, data){
     body: JSON.stringify(data)
   });
   const j = await r.json().catch(()=>({}));
-  return { status: r.status, json: j };
-}
-
-function captchaResponse(which){
-  if (!window.grecaptcha) return "";
-  const wid = which === "reg" ? WIDGET_REG : WIDGET_LOGIN;
-  if (wid === null) return "";
-  return grecaptcha.getResponse(wid);
-}
-
-function captchaReset(which){
-  if (!window.grecaptcha) return;
-  const wid = which === "reg" ? WIDGET_REG : WIDGET_LOGIN;
-  if (wid !== null) grecaptcha.reset(wid);
+  return { status:r.status, json:j };
 }
 
 function mapErr(e){
   switch(e){
-    case "CAPTCHA_FAILED": return "Подтверди капчу.";
     case "BAD_EMAIL": return "Неверный email.";
     case "BAD_PASSWORD": return "Пароль минимум 8 символов.";
-    case "ACCOUNT_EXISTS": return "Аккаунт с этим email уже есть. Войди в него.";
+    case "ACCOUNT_EXISTS": return "Аккаунт уже есть. Войди в него.";
     case "NO_PENDING": return "Код истёк. Запроси новый.";
     case "INVALID_CODE": return "Неверный код.";
     case "BAD_NAME": return "Имя некорректное.";
@@ -168,16 +128,10 @@ async function regSendCode(){
   hideMsg();
   REG_EMAIL = regEmail.value.trim().toLowerCase();
 
-  const captcha = captchaResponse("reg");
-  if (!captcha) return showMsg("Подтверди капчу.");
-
   const { json } = await post("register_sendCode", {
     email: REG_EMAIL,
-    password: regPassword.value,
-    captcha
+    password: regPassword.value
   });
-
-  captchaReset("reg");
 
   if (!json.ok) {
     showMsg(mapErr(json.error));
@@ -223,16 +177,10 @@ async function regSetup(){
 async function login(){
   hideMsg();
 
-  const captcha = captchaResponse("login");
-  if (!captcha) return showMsg("Подтверди капчу.");
-
   const { json } = await post("login", {
     email: loginEmail.value.trim().toLowerCase(),
-    password: loginPassword.value,
-    captcha
+    password: loginPassword.value
   });
-
-  captchaReset("login");
 
   if (!json.ok) return showMsg(mapErr(json.error));
 
