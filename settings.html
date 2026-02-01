@@ -1,60 +1,79 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Settings — Exuberant</title>
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-  <link rel="stylesheet" href="base.css">
-  <link rel="stylesheet" href="settings.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/base.css">
+  <link rel="stylesheet" href="/forum-ui.css">
 </head>
 <body>
 
 <header class="topbar">
-  <div class="title">Settings</div>
+  <div class="left">
+    <div class="brand">
+      <div class="title">Settings</div>
+      <div class="sub">Profile & appearance</div>
+    </div>
+  </div>
   <div class="right">
     <button class="btn-ghost" onclick="location.href='/forum.html'">Back</button>
-    <button class="btn-ghost" onclick="logout()">Logout</button>
+    <button class="btn-ghost btn-danger" onclick="logout()">Logout</button>
   </div>
 </header>
 
-<main class="container">
-  <section class="card set-card">
-    <div id="msg" class="msg hidden"></div>
+<main class="container page-pad">
 
+  <section class="card set-card">
+    <div class="set-row">
+      <img id="preview" class="preview-avatar" alt="">
+      <div class="grow">
+        <div style="font-weight:900">Avatar</div>
+        <div class="muted small">PNG/JPG/WEBP, до 1.5MB</div>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <input type="file" id="avatarFile" class="input" accept="image/*">
+    <button class="btn-soft" onclick="uploadAvatar()">Upload avatar</button>
+
+    <div id="msgA" class="msg hidden"></div>
+  </section>
+
+  <section class="card set-card">
     <label class="label">Name</label>
     <input class="input" id="name">
 
     <label class="label">Username</label>
     <input class="input" id="username" placeholder="@username">
 
-    <label class="label">Avatar URL (https)</label>
-    <input class="input" id="avatarUrl" placeholder="https://...">
-
-    <button class="btn" onclick="save()">Save</button>
-  </section>
-
-  <section class="card set-card">
-    <div class="sec-head">
-      <div class="sec-title">Sessions</div>
-      <button class="btn-ghost" onclick="loadSessions()">Refresh</button>
-    </div>
-
-    <div id="sess" class="sess"></div>
+    <label class="label">About</label>
+    <textarea class="textarea" id="about" style="min-height:110px"></textarea>
 
     <div class="hr"></div>
 
-    <button class="btn-ghost danger" onclick="logoutAll()">Logout all sessions</button>
+    <div class="muted small" style="margin-bottom:8px;">Badges (visual only)</div>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <label class="badge premium"><input type="checkbox" id="bPremium"> PREMIUM</label>
+      <label class="badge verified"><input type="checkbox" id="bVerified"> VERIFIED</label>
+      <label class="badge early"><input type="checkbox" id="bEarly"> EARLY</label>
+    </div>
+
+    <div class="hr"></div>
+
+    <button class="btn" onclick="save()">Save</button>
+    <div id="msg" class="msg hidden"></div>
   </section>
+
 </main>
 
 <script>
-function showMsg(t){ msg.textContent=t; msg.classList.remove("hidden"); }
-function hideMsg(){ msg.classList.add("hidden"); msg.textContent=""; }
+function show(el, t){ el.textContent=t; el.classList.remove("hidden"); }
+function hide(el){ el.classList.add("hidden"); el.textContent=""; }
 
 async function me(){
   const r = await fetch("/api/profile", { credentials:"include" });
@@ -63,21 +82,56 @@ async function me(){
 }
 
 async function save(){
-  hideMsg();
+  hide(msg);
+  const badges = [];
+  if (bPremium.checked) badges.push("premium");
+  if (bVerified.checked) badges.push("verified");
+  if (bEarly.checked) badges.push("early");
+
   const r = await fetch("/api/profile", {
     method:"POST",
-    headers:{"Content-Type":"application/json"},
+    headers:{ "Content-Type":"application/json" },
     credentials:"include",
     body: JSON.stringify({
       name: name.value,
       username: username.value,
-      avatarUrl: avatarUrl.value
+      about: about.value,
+      badges
     })
   });
   const j = await r.json().catch(()=>({}));
-  if (j.error === "USERNAME_TAKEN") return showMsg("Username занят.");
-  if (j.error) return showMsg("Ошибка. Проверь данные.");
-  showMsg("Сохранено.");
+  if (!j.ok) return show(msg, j.error || "Save failed");
+  show(msg, "Saved");
+}
+
+async function uploadAvatar(){
+  hide(msgA);
+  const f = avatarFile.files[0];
+  if (!f) return show(msgA, "Choose file");
+
+  if (f.size > 1.5 * 1024 * 1024) return show(msgA, "Too large (max 1.5MB)");
+
+  const b64 = await fileToDataUrl(f);
+  preview.src = b64;
+
+  const r = await fetch("/api/avatar", {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    credentials:"include",
+    body: JSON.stringify({ dataUrl: b64 })
+  });
+  const j = await r.json().catch(()=>({}));
+  if (!j.ok) return show(msgA, j.error || "Upload failed");
+  show(msgA, "Avatar updated");
+}
+
+function fileToDataUrl(file){
+  return new Promise((resolve, reject)=>{
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
 }
 
 async function logout(){
@@ -85,30 +139,17 @@ async function logout(){
   location.href="/index.html";
 }
 
-async function logoutAll(){
-  await fetch("/api/sessions?action=logout_all", { method:"POST", credentials:"include" });
-  location.href="/index.html";
-}
-
-async function loadSessions(){
-  const r = await fetch("/api/sessions", { credentials:"include" });
-  if (r.status === 401) return location.href="/index.html";
-  const j = await r.json().catch(()=>({}));
-  const items = (j.sessions || []).map(s => `
-    <div class="sess-item">
-      <div class="sess-main">${s.idShort}</div>
-      <div class="sess-sub">${new Date(s.createdAt).toLocaleString()}</div>
-    </div>
-  `).join("");
-  sess.innerHTML = items || `<div class="muted small">No sessions</div>`;
-}
-
-(async()=>{
+(async ()=>{
   const u = await me();
   name.value = u.name || "";
-  username.value = "@"+(u.username || "");
-  avatarUrl.value = u.avatarUrl || "";
-  await loadSessions();
+  username.value = "@"+(u.username||"");
+  about.value = u.about || "";
+  if (u.avatar) preview.src = u.avatar; else preview.style.visibility="hidden";
+
+  const b = new Set(u.badges || []);
+  bPremium.checked = b.has("premium");
+  bVerified.checked = b.has("verified");
+  bEarly.checked = b.has("early");
 })();
 </script>
 
