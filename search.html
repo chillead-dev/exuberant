@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Search — Exuberant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/base.css">
+  <link rel="stylesheet" href="/search.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="title">Search</div>
+  <div class="right">
+    <button class="btn-ghost" onclick="location.href='/forum.html'">Back</button>
+    <button class="btn-ghost" onclick="location.href='/settings.html'">Profile</button>
+  </div>
+</header>
+
+<main class="container">
+  <section class="card box">
+    <label class="label">Find user by username</label>
+    <input class="input" id="q" placeholder="@username" oninput="debouncedSearch()">
+    <div id="hint" class="muted small">Type at least 2 characters.</div>
+    <div class="hr"></div>
+    <div id="list" class="list"></div>
+  </section>
+</main>
+
+<nav class="bottom-nav">
+  <button class="nav-item" onclick="location.href='/forum.html'">Feed</button>
+  <button class="nav-item active" onclick="location.href='/search.html'">Search</button>
+  <button class="nav-item" onclick="location.href='/create.html'">New</button>
+  <button class="nav-item" onclick="location.href='/settings.html'">Profile</button>
+</nav>
+
+<script>
+let t = null;
+
+function esc(s){
+  return String(s||"").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+function debouncedSearch(){
+  clearTimeout(t);
+  t = setTimeout(search, 250);
+}
+
+async function search(){
+  const raw = q.value.trim();
+  const term = raw.startsWith("@") ? raw.slice(1) : raw;
+  if (term.length < 2){
+    list.innerHTML = "";
+    hint.textContent = "Type at least 2 characters.";
+    return;
+  }
+
+  hint.textContent = "Searching…";
+  const r = await fetch(`/api/users?q=${encodeURIComponent(term)}`, { credentials:"include" });
+  if (r.status === 401) return location.href="/index.html";
+  const j = await r.json().catch(()=>({ users: [] }));
+
+  const users = j.users || [];
+  hint.textContent = users.length ? `Found: ${users.length}` : "No matches.";
+
+  list.innerHTML = users.map(u => `
+    <div class="row">
+      <div class="who">
+        <div class="uname">@${esc(u.username)}</div>
+        <div class="meta">${esc(u.name || "")}</div>
+      </div>
+      <button class="btn-ghost" onclick="openChat('${encodeURIComponent(u.username)}')">Message</button>
+    </div>
+  `).join("");
+}
+
+function openChat(usernameEnc){
+  location.href = `/chat.html?u=${usernameEnc}`;
+}
+</script>
+
+</body>
+</html>
