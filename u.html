@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>User — Exuberant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/base.css">
+  <link rel="stylesheet" href="/forum-ui.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="left">
+    <div class="brand">
+      <div class="title">Profile</div>
+      <div class="sub" id="sub">Loading…</div>
+    </div>
+  </div>
+  <div class="right">
+    <button class="btn-ghost" onclick="history.back()">Back</button>
+  </div>
+</header>
+
+<main class="container page-pad">
+  <section class="card profile-card">
+    <div class="profile-top">
+      <img id="ava" class="big-avatar" alt="">
+      <div style="min-width:0">
+        <div class="pname" id="name"></div>
+        <div class="puname" id="uname"></div>
+        <div class="badges" id="badges" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="profile-actions">
+      <button class="btn-soft" id="msgBtn">Message</button>
+      <button class="btn-ghost" id="postsBtn">Posts</button>
+    </div>
+
+    <div class="hr"></div>
+    <div class="muted small" id="about"></div>
+  </section>
+</main>
+
+<nav class="bottom-nav">
+  <button class="nav-item" onclick="location.href='/forum.html'">Feed</button>
+  <button class="nav-item" onclick="location.href='/search.html'">Search</button>
+  <button class="nav-item" onclick="location.href='/create.html'">New</button>
+  <button class="nav-item" onclick="location.href='/settings.html'">Profile</button>
+</nav>
+
+<script>
+function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+
+const u = new URLSearchParams(location.search).get("u") || "";
+sub.textContent = "@"+u;
+
+function badgeHtml(b){
+  const cls = (b==="premium"||b==="verified"||b==="early") ? b : "";
+  const label = b.toUpperCase();
+  return `<span class="badge ${cls}">${esc(label)}</span>`;
+}
+
+(async ()=>{
+  const r = await fetch(`/api/user?u=${encodeURIComponent(u)}`, { credentials:"include" });
+  if (r.status === 401) return location.href="/index.html";
+  const j = await r.json().catch(()=>({}));
+
+  if (!j.ok) {
+    name.textContent = "User not found";
+    uname.textContent = "";
+    msgBtn.disabled = true;
+    postsBtn.disabled = true;
+    return;
+  }
+
+  const user = j.user;
+  name.textContent = user.name || ("@"+user.username);
+  uname.textContent = "@"+user.username;
+
+  ava.src = user.avatar || "";
+  ava.style.visibility = user.avatar ? "visible" : "hidden";
+
+  badges.innerHTML = (user.badges || []).map(badgeHtml).join("") || `<span class="muted small">no badges</span>`;
+
+  about.textContent = user.about || "";
+
+  msgBtn.onclick = () => location.href = `/chat.html?u=${encodeURIComponent(user.username)}`;
+  postsBtn.onclick = () => location.href = `/forum.html?author=${encodeURIComponent(user.username)}`;
+})();
+</script>
+
+</body>
+</html>
