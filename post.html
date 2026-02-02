@@ -1,12 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Post — Exuberant</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Post</title>
   <link rel="stylesheet" href="/base.css">
   <link rel="stylesheet" href="/forum-ui.css">
 </head>
@@ -28,27 +25,21 @@
   <section class="card" style="padding:14px" id="wrap"></section>
 </main>
 
-<nav class="bottom-nav">
-  <button class="nav-item" onclick="location.href='/forum.html'">Feed</button>
-  <button class="nav-item" onclick="location.href='/search.html'">Search</button>
-  <button class="nav-item" onclick="location.href='/create.html'">New</button>
-  <button class="nav-item" onclick="location.href='/settings.html'">Profile</button>
-</nav>
-
 <script>
 function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 const id = new URLSearchParams(location.search).get("id") || "";
 
-(async ()=>{
-  const r = await fetch("/api/post?id="+encodeURIComponent(id), { credentials:"include" });
-  if (r.status === 401) return location.href="/index.html";
-  const j = await r.json().catch(()=>({}));
+(async()=>{
+  const r = await fetch(`/api/data?action=post_get&id=${encodeURIComponent(id)}`, { credentials:"include" });
+  if (r.status===401) return location.href="/index.html";
+  const j = await r.json().catch(()=>({ok:false}));
+
   if (!j.ok) return wrap.innerHTML = `<div class="muted">Not found</div>`;
 
   const p = j.post;
   wrap.innerHTML = `
     <div class="post-author" style="cursor:pointer" onclick="location.href='/u.html?u=${encodeURIComponent(p.username)}'">
-      <img class="avatar" src="${p.avatar||""}" style="${p.avatar?"":"visibility:hidden"}" alt="">
+      <img class="avatar" src="${p.avatar||""}" style="${p.avatar?'':'visibility:hidden'}" alt="">
       <div class="nameblock">
         <div class="uname">@${esc(p.username)}</div>
         <div class="meta">${new Date(p.createdAt||Date.now()).toLocaleString()}</div>
