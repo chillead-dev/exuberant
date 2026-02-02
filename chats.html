@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Chats — Exuberant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/base.css">
+  <link rel="stylesheet" href="/chat.css">
+</head>
+<body>
+
+<div class="layout">
+
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="title">Сообщения</div>
+      <input id="search" placeholder="Поиск @username" class="input">
+    </div>
+
+    <div id="chatList" class="chat-list"></div>
+  </aside>
+
+  <main class="empty">
+    <div class="empty-state">
+      <div class="empty-title">Выбери диалог</div>
+      <div class="empty-sub">или найди пользователя</div>
+    </div>
+  </main>
+
+</div>
+
+<script>
+async function api(action, params={}) {
+  const q = new URLSearchParams({ action, ...params }).toString();
+  const r = await fetch(`/api/data?${q}`, { credentials:"include" });
+  return r.json();
+}
+
+async function loadChats() {
+  const r = await api("dm_list");
+  const list = document.getElementById("chatList");
+  list.innerHTML = "";
+
+  if (!r.ok || !r.chats.length) {
+    list.innerHTML = `<div class="muted pad">Нет диалогов</div>`;
+    return;
+  }
+
+  for (const c of r.chats) {
+    const el = document.createElement("a");
+    el.href = `/chat.html?tid=${c.threadId}`;
+    el.className = "chat-item";
+
+    el.innerHTML = `
+      <img class="avatar" src="${c.peer.avatar || '/avatar.png'}">
+      <div class="chat-meta">
+        <div class="chat-name">
+          ${c.peer.name || c.peer.username}
+          ${c.peer.badges?.includes("developer") ? "✔" : ""}
+        </div>
+        <div class="chat-preview">${c.preview || ""}</div>
+      </div>
+    `;
+    list.appendChild(el);
+  }
+}
+
+document.getElementById("search").addEventListener("keydown", async e => {
+  if (e.key !== "Enter") return;
+  const q = e.target.value.trim().replace(/^@/, "");
+  if (!q) return;
+
+  const r = await api("users_search", { q });
+  const list = document.getElementById("chatList");
+  list.innerHTML = "";
+
+  for (const u of r.users) {
+    const el = document.createElement("a");
+    el.href = `/chat.html?u=${u.username}`;
+    el.className = "chat-item";
+
+    el.innerHTML = `
+      <img class="avatar" src="${u.avatar || '/avatar.png'}">
+      <div class="chat-meta">
+        <div class="chat-name">${u.name || u.username}</div>
+        <div class="chat-preview">@${u.username}</div>
+      </div>
+    `;
+    list.appendChild(el);
+  }
+});
+
+loadChats();
+</script>
+
+</body>
+</html>
