@@ -1,14 +1,12 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Exuberant</title>
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="/base.css">
   <link rel="stylesheet" href="/forum-ui.css">
 </head>
@@ -50,26 +48,35 @@ function badgeHtml(b){
   return `<span class="badge ${cls}">${esc(b.toUpperCase())}</span>`;
 }
 
-async function me(){
-  const r = await fetch("/api/profile", { credentials:"include" });
+async function getMe(){
+  const r = await fetch("/api/auth?action=profile_get", { credentials:"include" });
   if (r.status === 401) location.href="/index.html";
-  return r.json();
+  const j = await r.json().catch(()=>({ ok:false }));
+  return j;
 }
 
-async function loadFeed(){
-  const author = new URLSearchParams(location.search).get("author") || "";
-  const r = await fetch(`/api/posts?author=${encodeURIComponent(author)}`, { credentials:"include" });
+async function getPosts(){
+  const r = await fetch("/api/data?action=posts_get", { credentials:"include" });
   if (r.status === 401) location.href="/index.html";
-  const j = await r.json().catch(()=>({ posts:[] }));
+  return r.json().catch(()=>({ ok:false, posts:[] }));
+}
 
-  const posts = j.posts || [];
+(async ()=>{
+  const me = await getMe();
+  if (!me.ok) return location.href="/index.html";
+  meName.textContent = me.user.name || "Exuberant";
+  meSub.textContent = "@"+(me.user.username||"");
+  if (me.user.avatar) meAva.src = me.user.avatar; else meAva.style.visibility="hidden";
+
+  const data = await getPosts();
+  const posts = data.posts || [];
   empty.classList.toggle("hidden", posts.length !== 0);
 
   feed.innerHTML = posts.map(p => `
     <article class="post-card" onclick="location.href='/post.html?id=${encodeURIComponent(p.id)}'">
       <div class="post-head">
         <div class="post-author" onclick="event.stopPropagation(); location.href='/u.html?u=${encodeURIComponent(p.username)}'">
-          <img class="avatar" src="${p.avatar || ""}" style="${p.avatar ? "" : "visibility:hidden"}" alt="">
+          <img class="avatar" src="${p.avatar||""}" style="${p.avatar?'':'visibility:hidden'}" alt="">
           <div class="nameblock">
             <div class="uname">@${esc(p.username)}</div>
             <div class="meta">${(p.badges||[]).slice(0,3).map(badgeHtml).join(" ")}</div>
@@ -77,19 +84,10 @@ async function loadFeed(){
         </div>
         <div class="muted small">${new Date(p.createdAt||Date.now()).toLocaleString()}</div>
       </div>
-
       <div class="post-title">${esc(p.title)}</div>
-      <div class="post-snippet">${esc(p.snippet || "")}</div>
+      <div class="post-snippet">${esc(p.snippet||"")}</div>
     </article>
   `).join("");
-}
-
-(async ()=>{
-  const u = await me();
-  meName.textContent = u.name || "Exuberant";
-  meSub.textContent = "@"+(u.username||"");
-  if (u.avatar) meAva.src = u.avatar; else meAva.style.visibility = "hidden";
-  await loadFeed();
 })();
 </script>
 
