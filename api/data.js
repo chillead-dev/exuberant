@@ -1,13 +1,26 @@
 import crypto from "crypto";
 
 /**
- * API: /api/data?action=...
+ * /api/data?action=...
+ * Required ENV:
+ * - UPSTASH_REDIS_REST_URL
+ * - UPSTASH_REDIS_REST_TOKEN
+ *
  * Actions:
  * - post_create  POST { title, body }
- * - posts_get    GET  (?author=optional)
- * - post_get     GET  (?id=required)
- * - users_search GET  (?q=required)
- * - user_get     GET  (?u=required)
+ * - posts_get    GET  (?author optional)
+ * - post_get     GET  (?id required)
+ * - users_search GET  (?q required)  (SCAN)
+ * - user_get     GET  (?u required)
+ *
+ * DM Actions:
+ * - dm_init   GET  ?u=username
+ * - dm_list   GET
+ * - dm_fetch  GET  ?threadId&after
+ * - dm_send   POST { threadId, type:"text"|"image", text?, dataUrl? }
+ * - dm_edit   POST { threadId, id, text }
+ * - dm_delete POST { threadId, id }
+ * - dm_pin    POST { threadId, id }
  */
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "";
@@ -45,12 +58,23 @@ function getSid(req) {
   return (c.match(/(?:^|;\s*)sid=([^;]+)/) || [])[1] || "";
 }
 
+async function isBanned(email) {
+  const b = await redis("get", `ban:email:${email}`);
+  return !!b.result;
+}
+
 async function requireAuth(req, res) {
   const sid = getSid(req);
-  if (!sid) { json(res, 401, { ok: false, error: "NO_SESSION" }); return null; }
+  if (!sid) { json(res, 401, { ok:false, error:"NO_SESSION" }); return null; }
   const se = await redis("get", `sess:${sid}`);
-  if (!se.result) { json(res, 401, { ok: false, error: "NO_SESSION" }); return null; }
-  return se.result; // email
+  if (!se.result) { json(res, 401, { ok:false, error:"NO_SESSION" }); return null; }
+  const email = se.result;
+
+  if (await isBanned(email)) {
+    json(res, 403, { ok:false, error:"BANNED" });
+    return null;
+  }
+  return email;
 }
 
 function normUser(u) {
@@ -64,6 +88,20 @@ function snippetFrom(text) {
   return t.slice(0, 180);
 }
 
+function threadIdFor(a, b) {
+  const x = [a, b].sort().join("|");
+  return crypto.createHash("sha256").update(x).digest("hex").slice(0, 32);
+}
+
+async function threadMeta(threadId) {
+  const raw = (await redis("get", `dm:thread:${threadId}:meta`)).result;
+  return raw ? JSON.parse(raw) : null;
+}
+
+function isParticipant(meta, email) {
+  return meta && (meta.a === email || meta.b === email);
+}
+
 export default async function handler(req, res) {
   try {
     if (!REDIS_URL || !REDIS_TOKEN) return json(res, 500, { ok:false, error:"SERVER_MISCONFIGURED" });
@@ -74,6 +112,7 @@ export default async function handler(req, res) {
     const email = await requireAuth(req, res);
     if (!email) return;
 
+    // -------- POSTS --------
     if (action === "post_create") {
       if (req.method !== "POST") return json(res, 405, { ok:false, error:"METHOD" });
 
@@ -130,7 +169,7 @@ export default async function handler(req, res) {
       return json(res, 200, { ok:true, post: JSON.parse(p.result) });
     }
 
-    // users_search (SCAN, not KEYS)
+    // -------- USERS --------
     if (action === "users_search") {
       const q = normUser(req.query.q || "");
       if (q.length < 2) return json(res, 200, { ok:true, users: [] });
@@ -138,7 +177,6 @@ export default async function handler(req, res) {
       const users = [];
       let cursor = "0";
 
-      // scan in bounded iterations for safety
       for (let i = 0; i < 10 && users.length < 20; i++) {
         const s = await redis("scan", cursor, "match", "user:username:*", "count", "250");
         cursor = String(s.result?.[0] ?? "0");
@@ -182,16 +220,224 @@ export default async function handler(req, res) {
       if (!raw) return json(res, 200, { ok:false, error:"NOT_FOUND" });
 
       const user = JSON.parse(raw);
-      return json(res, 200, {
-        ok:true,
-        user:{
-          username: user.username,
-          name: user.name || "",
-          about: user.about || "",
-          avatar: user.avatar || "",
-          badges: user.badges || []
+      return json(res, 200, { ok:true, user:{
+        username: user.username,
+        name: user.name || "",
+        about: user.about || "",
+        avatar: user.avatar || "",
+        badges: user.badges || []
+      }});
+    }
+
+    // -------- DM / CHATS --------
+
+    if (action === "dm_init") {
+      const peerU = normUser(req.query.u || "");
+      const peerEmail = (await redis("get", `user:username:${peerU}`)).result;
+      if (!peerEmail) return json(res, 200, { ok:false, error:"NO_USER" });
+
+      const tid = threadIdFor(email, peerEmail);
+
+      const metaKey = `dm:thread:${tid}:meta`;
+      const metaExisting = (await redis("get", metaKey)).result;
+      if (!metaExisting) {
+        await redis("set", metaKey, JSON.stringify({
+          tid, a: email, b: peerEmail, pinned: 0, lastTs: Date.now()
+        }));
+      }
+
+      // recents for both users
+      await redis("lrem", `dm:user:${email}:threads`, "0", tid);
+      await redis("lpush", `dm:user:${email}:threads`, tid);
+      await redis("ltrim", `dm:user:${email}:threads`, "0", "50");
+
+      await redis("lrem", `dm:user:${peerEmail}:threads`, "0", tid);
+      await redis("lpush", `dm:user:${peerEmail}:threads`, tid);
+      await redis("ltrim", `dm:user:${peerEmail}:threads`, "0", "50");
+
+      return json(res, 200, { ok:true, threadId: tid });
+    }
+
+    if (action === "dm_list") {
+      const tids = (await redis("lrange", `dm:user:${email}:threads`, "0", "30")).result || [];
+      const out = [];
+
+      for (const tid of tids) {
+        const meta = await threadMeta(tid);
+        if (!meta || !isParticipant(meta, email)) continue;
+
+        const peerEmail = (meta.a === email) ? meta.b : meta.a;
+        const peerRaw = (await redis("get", `user:email:${peerEmail}`)).result;
+        if (!peerRaw) continue;
+        const peer = JSON.parse(peerRaw);
+
+        const lastId = Number((await redis("get", `dm:thread:${tid}:lastId`)).result || 0);
+        let preview = "";
+        if (lastId) {
+          const m = (await redis("get", `dm:thread:${tid}:m:${lastId}`)).result;
+          if (m) {
+            const msg = JSON.parse(m);
+            if (msg.deleted) preview = "[deleted]";
+            else preview = (msg.type === "image") ? "[photo]" : String(msg.text || "").slice(0, 60);
+          }
         }
-      });
+
+        out.push({
+          threadId: tid,
+          peer: { username: peer.username, name: peer.name || "", avatar: peer.avatar || "", badges: peer.badges || [] },
+          pinnedId: meta.pinned || 0,
+          lastTs: meta.lastTs || 0,
+          preview
+        });
+      }
+
+      return json(res, 200, { ok:true, chats: out });
+    }
+
+    if (action === "dm_fetch") {
+      const tid = String(req.query.threadId || "");
+      const after = Number(req.query.after || 0);
+
+      const meta = await threadMeta(tid);
+      if (!meta) return json(res, 200, { ok:false, error:"NO_THREAD" });
+      if (!isParticipant(meta, email)) return json(res, 403, { ok:false, error:"FORBIDDEN" });
+
+      const ids = (await redis("lrange", `dm:thread:${tid}:ids`, "0", "120")).result || [];
+      const want = ids.map(Number).filter(n => n > after).sort((a,b)=>a-b);
+
+      const out = [];
+      for (const id of want) {
+        const raw = (await redis("get", `dm:thread:${tid}:m:${id}`)).result;
+        if (raw) out.push(JSON.parse(raw));
+      }
+
+      return json(res, 200, { ok:true, messages: out, pinned: meta.pinned || 0 });
+    }
+
+    if (action === "dm_send") {
+      if (req.method !== "POST") return json(res, 405, { ok:false, error:"METHOD" });
+
+      const tid = String(body.threadId || "");
+      const type = String(body.type || "text");
+      const text = String(body.text || "").trim();
+      const dataUrl = String(body.dataUrl || "");
+
+      const meta = await threadMeta(tid);
+      if (!meta) return json(res, 200, { ok:false, error:"NO_THREAD" });
+      if (!isParticipant(meta, email)) return json(res, 403, { ok:false, error:"FORBIDDEN" });
+
+      if (type === "text") {
+        if (!text) return json(res, 200, { ok:false, error:"EMPTY" });
+        if (text.length > 4000) return json(res, 200, { ok:false, error:"TOO_LARGE" });
+      } else if (type === "image") {
+        if (!dataUrl.startsWith("data:image/")) return json(res, 200, { ok:false, error:"BAD_IMAGE" });
+        if (dataUrl.length > 1_800_000) return json(res, 200, { ok:false, error:"TOO_LARGE" });
+      } else {
+        return json(res, 200, { ok:false, error:"BAD_TYPE" });
+      }
+
+      const seq = await redis("incr", `dm:thread:${tid}:seq`);
+      const id = Number(seq.result || 0);
+
+      const msg = {
+        id,
+        threadId: tid,
+        from: email,
+        ts: Date.now(),
+        type,
+        text: type === "text" ? text : "",
+        dataUrl: type === "image" ? dataUrl : "",
+        editedAt: 0,
+        deleted: false
+      };
+
+      await redis("set", `dm:thread:${tid}:m:${id}`, JSON.stringify(msg));
+      await redis("lpush", `dm:thread:${tid}:ids`, String(id));
+      await redis("ltrim", `dm:thread:${tid}:ids`, "0", "600");
+      await redis("set", `dm:thread:${tid}:lastId`, String(id));
+
+      meta.lastTs = Date.now();
+      await redis("set", `dm:thread:${tid}:meta`, JSON.stringify(meta));
+
+      // bump recents
+      await redis("lrem", `dm:user:${meta.a}:threads`, "0", tid);
+      await redis("lpush", `dm:user:${meta.a}:threads`, tid);
+      await redis("ltrim", `dm:user:${meta.a}:threads`, "0", "50");
+      await redis("lrem", `dm:user:${meta.b}:threads`, "0", tid);
+      await redis("lpush", `dm:user:${meta.b}:threads`, tid);
+      await redis("ltrim", `dm:user:${meta.b}:threads`, "0", "50");
+
+      return json(res, 200, { ok:true, id });
+    }
+
+    if (action === "dm_edit") {
+      if (req.method !== "POST") return json(res, 405, { ok:false, error:"METHOD" });
+
+      const tid = String(body.threadId || "");
+      const id = Number(body.id || 0);
+      const text = String(body.text || "").trim();
+
+      if (!tid || !id) return json(res, 200, { ok:false, error:"BAD" });
+      if (!text || text.length > 4000) return json(res, 200, { ok:false, error:"BAD_TEXT" });
+
+      const meta = await threadMeta(tid);
+      if (!meta) return json(res, 200, { ok:false, error:"NO_THREAD" });
+      if (!isParticipant(meta, email)) return json(res, 403, { ok:false, error:"FORBIDDEN" });
+
+      const raw = (await redis("get", `dm:thread:${tid}:m:${id}`)).result;
+      if (!raw) return json(res, 200, { ok:false, error:"NOT_FOUND" });
+
+      const msg = JSON.parse(raw);
+      if (msg.from !== email) return json(res, 403, { ok:false, error:"FORBIDDEN" });
+      if (msg.deleted) return json(res, 200, { ok:false, error:"DELETED" });
+      if (msg.type !== "text") return json(res, 200, { ok:false, error:"BAD_TYPE" });
+
+      msg.text = text;
+      msg.editedAt = Date.now();
+      await redis("set", `dm:thread:${tid}:m:${id}`, JSON.stringify(msg));
+
+      return json(res, 200, { ok:true });
+    }
+
+    if (action === "dm_delete") {
+      if (req.method !== "POST") return json(res, 405, { ok:false, error:"METHOD" });
+
+      const tid = String(body.threadId || "");
+      const id = Number(body.id || 0);
+
+      const meta = await threadMeta(tid);
+      if (!meta) return json(res, 200, { ok:false, error:"NO_THREAD" });
+      if (!isParticipant(meta, email)) return json(res, 403, { ok:false, error:"FORBIDDEN" });
+
+      const raw = (await redis("get", `dm:thread:${tid}:m:${id}`)).result;
+      if (!raw) return json(res, 200, { ok:false, error:"NOT_FOUND" });
+
+      const msg = JSON.parse(raw);
+      if (msg.from !== email) return json(res, 403, { ok:false, error:"FORBIDDEN" });
+
+      msg.deleted = true;
+      msg.text = "";
+      msg.dataUrl = "";
+      msg.editedAt = Date.now();
+      await redis("set", `dm:thread:${tid}:m:${id}`, JSON.stringify(msg));
+
+      return json(res, 200, { ok:true });
+    }
+
+    if (action === "dm_pin") {
+      if (req.method !== "POST") return json(res, 405, { ok:false, error:"METHOD" });
+
+      const tid = String(body.threadId || "");
+      const id = Number(body.id || 0);
+
+      const meta = await threadMeta(tid);
+      if (!meta) return json(res, 200, { ok:false, error:"NO_THREAD" });
+      if (!isParticipant(meta, email)) return json(res, 403, { ok:false, error:"FORBIDDEN" });
+
+      meta.pinned = id;
+      await redis("set", `dm:thread:${tid}:meta`, JSON.stringify(meta));
+
+      return json(res, 200, { ok:true });
     }
 
     return json(res, 404, { ok:false, error:"UNKNOWN_ACTION" });
