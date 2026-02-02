@@ -1,17 +1,26 @@
 import crypto from "crypto";
 
-const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const RESEND_KEY = process.env.RESEND_API_KEY;
+/**
+ * API: /api/auth?action=...
+ * Actions:
+ * - register_send   POST { email, password }
+ * - register_verify POST { email, code }
+ * - register_setup  POST { email, name, username }
+ * - login           POST { email, password }
+ * - logout          POST
+ * - profile_get     GET/POST (GET recommended)
+ * - profile_set     POST { name?, username?, about?, badges?[] }
+ * - avatar_set      POST { dataUrl }
+ */
+
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || "";
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || "";
+const RESEND_KEY = process.env.RESEND_API_KEY || "";
 const AUTH_SECRET = process.env.AUTH_SECRET || "";
 const SITE_DOMAIN = process.env.SITE_DOMAIN || "exuberant.pw";
 const SITE_NAME = process.env.SITE_NAME || "Exuberant";
 
-if (!REDIS_URL || !REDIS_TOKEN) throw new Error("Missing Upstash env");
-if (!RESEND_KEY) throw new Error("Missing Resend env");
-if (AUTH_SECRET.length < 16) throw new Error("AUTH_SECRET too short");
-
-function j(res, code, obj) {
+function json(res, code, obj) {
   res.statusCode = code;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
@@ -21,12 +30,16 @@ function j(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+function envOk() {
+  return !!(REDIS_URL && REDIS_TOKEN && AUTH_SECRET && AUTH_SECRET.length >= 16);
+}
+
 async function redis(cmd, ...args) {
   const url = `${REDIS_URL}/${cmd}/${args.map(encodeURIComponent).join("/")}`;
   const r = await fetch(url, { headers: { Authorization: `Bearer ${REDIS_TOKEN}` } });
-  const out = await r.json();
-  if (out.error) throw new Error(out.error);
-  return out;
+  const j = await r.json().catch(() => ({}));
+  if (j.error) throw new Error(`Redis: ${j.error}`);
+  return j;
 }
 
 async function readBody(req) {
@@ -36,33 +49,6 @@ async function readBody(req) {
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   if (!raw) return {};
   try { return JSON.parse(raw); } catch { return {}; }
-}
-
-function getSid(req) {
-  const c = String(req.headers.cookie || "");
-  return (c.match(/(?:^|;\s*)sid=([^;]+)/) || [])[1] || "";
-}
-
-function setSid(res, sid) {
-  res.setHeader(
-    "Set-Cookie",
-    `sid=${sid}; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=${60 * 60 * 24 * 30}`
-  );
-}
-
-function clearSid(res) {
-  res.setHeader(
-    "Set-Cookie",
-    `sid=; Path=/; HttpOnly; SameSite=Lax; Secure; Max-Age=0`
-  );
-}
-
-async function requireAuth(req, res) {
-  const sid = getSid(req);
-  if (!sid) { j(res, 401, { ok: false, error: "NO_SESSION" }); return null; }
-  const se = await redis("get", `sess:${sid}`);
-  if (!se.result) { j(res, 401, { ok: false, error: "NO_SESSION" }); return null; }
-  return se.result; // email
 }
 
 function ipOf(req) {
@@ -77,29 +63,88 @@ async function rateLimit(req, bucket, limit, windowSec) {
   return cur.result <= limit;
 }
 
-function normEmail(e) {
-  return String(e || "").trim().toLowerCase();
+function getSid(req) {
+  const c = String(req.headers.cookie || "");
+  return (c.match(/(?:^|;\s*)sid=([^;]+)/) || [])[1] || "";
 }
+
+function isHttps(req) {
+  const proto = (req.headers["x-forwarded-proto"] || "").toString().toLowerCase();
+  // On Vercel production it should be "https"
+  return proto === "https";
+}
+
+function setSid(res, req, sid) {
+  const secure = isHttps(req) ? "Secure; " : "";
+  res.setHeader(
+    "Set-Cookie",
+    `sid=${sid}; Path=/; HttpOnly; SameSite=Lax; ${secure}Max-Age=${60 * 60 * 24 * 30}`
+  );
+}
+
+function clearSid(res, req) {
+  const secure = isHttps(req) ? "Secure; " : "";
+  res.setHeader(
+    "Set-Cookie",
+    `sid=; Path=/; HttpOnly; SameSite=Lax; ${secure}Max-Age=0`
+  );
+}
+
+async function requireAuth(req, res) {
+  const sid = getSid(req);
+  if (!sid) { json(res, 401, { ok: false, error: "NO_SESSION" }); return null; }
+  const se = await redis("get", `sess:${sid}`);
+  if (!se.result) { json(res, 401, { ok: false, error: "NO_SESSION" }); return null; }
+  return se.result; // email
+}
+
+function normEmail(e) { return String(e || "").trim().toLowerCase(); }
 function normUser(u) {
   u = String(u || "").trim().toLowerCase();
   if (u.startsWith("@")) u = u.slice(1);
   return u;
 }
 
-function okPassword(p) { return String(p || "").length >= 8 && String(p || "").length <= 72; }
+function okPassword(p) { p = String(p || ""); return p.length >= 8 && p.length <= 72; }
 function okName(n) { n = String(n || "").trim(); return n.length >= 1 && n.length <= 40; }
 function okUsername(u) { return /^[a-z0-9_]{3,20}$/.test(u) && !u.includes("__"); }
+function okAbout(a) { return String(a || "").length <= 240; }
 
-function pwHash(password) {
-  // simple HMAC-based hash (stable). Do not change AUTH_SECRET after launch.
-  return crypto.createHmac("sha256", AUTH_SECRET).update(String(password || "")).digest("hex");
-}
+const ALLOWED_BADGES = new Set(["premium", "verified", "early"]);
 
 function genCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+/** Password hashing v2: PBKDF2 + salt. Keep backward compatible with v1 HMAC */
+function pwHashV1(password) {
+  return crypto.createHmac("sha256", AUTH_SECRET).update(String(password || "")).digest("hex");
+}
+function pwHashV2(password, saltHex) {
+  const iter = 150000;
+  const salt = Buffer.from(saltHex, "hex");
+  const dk = crypto.pbkdf2Sync(String(password || ""), salt, iter, 32, "sha256");
+  return `pbkdf2$${iter}$${saltHex}$${dk.toString("hex")}`;
+}
+function pwVerify(password, stored) {
+  // v2
+  if (typeof stored === "string" && stored.startsWith("pbkdf2$")) {
+    try {
+      const [, iterStr, saltHex, dkHex] = stored.split("$");
+      const iter = Number(iterStr);
+      const salt = Buffer.from(saltHex, "hex");
+      const dk = crypto.pbkdf2Sync(String(password || ""), salt, iter, dkHex.length / 2, "sha256").toString("hex");
+      return crypto.timingSafeEqual(Buffer.from(dk, "hex"), Buffer.from(dkHex, "hex"));
+    } catch {
+      return false;
+    }
+  }
+  // v1 fallback
+  return stored === pwHashV1(password);
+}
+
 async function sendCodeEmail(to, code) {
+  if (!RESEND_KEY) return; // allow dev without email (still returns ok, but code won't arrive)
   const from = `Exuberant <auth@${SITE_DOMAIN}>`;
   const subject = `Код входа ${SITE_NAME}`;
   const html = `<div style="font-family:Arial,sans-serif">
@@ -110,221 +155,257 @@ async function sendCodeEmail(to, code) {
 
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_KEY}`,
-      "Content-Type": "application/json"
-    },
+    headers: { Authorization: `Bearer ${RESEND_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({ from, to, subject, html })
   });
+
   if (!r.ok) {
+    // Don’t crash auth. Just surface a clean error.
     const t = await r.text().catch(() => "");
-    throw new Error(`Resend ${r.status}: ${t}`);
+    throw new Error(`RESEND_${r.status}:${t.slice(0,200)}`);
   }
 }
 
 export default async function handler(req, res) {
-  const action = String(req.query.action || "");
-  const body = await readBody(req);
+  try {
+    const action = String(req.query.action || "");
+    const body = await readBody(req);
 
-  // global RL
-  if (!(await rateLimit(req, "auth", 90, 60))) return j(res, 429, { ok: false, error: "RATE_LIMIT" });
-
-  // REGISTER: send code
-  if (action === "register_send") {
-    if (req.method !== "POST") return j(res, 405, { ok: false, error: "METHOD" });
-
-    const email = normEmail(body.email);
-    const password = String(body.password || "");
-
-    if (!email.includes("@")) return j(res, 400, { ok: false, error: "BAD_EMAIL" });
-    if (!okPassword(password)) return j(res, 400, { ok: false, error: "BAD_PASSWORD" });
-
-    const exists = await redis("get", `user:email:${email}`);
-    if (exists.result) return j(res, 200, { ok: false, error: "ACCOUNT_EXISTS" });
-
-    const code = genCode();
-    await redis(
-      "set",
-      `pending:${email}`,
-      JSON.stringify({ code, pw: pwHash(password), createdAt: Date.now() }),
-      "EX",
-      300
-    );
-    await sendCodeEmail(email, code);
-    return j(res, 200, { ok: true });
-  }
-
-  // REGISTER: verify code
-  if (action === "register_verify") {
-    if (req.method !== "POST") return j(res, 405, { ok: false, error: "METHOD" });
-
-    const email = normEmail(body.email);
-    const code = String(body.code || "").trim();
-
-    const p = await redis("get", `pending:${email}`);
-    if (!p.result) return j(res, 200, { ok: false, error: "NO_PENDING" });
-
-    const data = JSON.parse(p.result);
-    if (data.code !== code) return j(res, 200, { ok: false, error: "INVALID_CODE" });
-
-    data.verified = true;
-    await redis("set", `pending:${email}`, JSON.stringify(data), "EX", 600);
-    return j(res, 200, { ok: true });
-  }
-
-  // REGISTER: setup profile
-  if (action === "register_setup") {
-    if (req.method !== "POST") return j(res, 405, { ok: false, error: "METHOD" });
-
-    const email = normEmail(body.email);
-    const name = String(body.name || "").trim();
-    const username = normUser(body.username);
-
-    if (!okName(name)) return j(res, 200, { ok: false, error: "BAD_NAME" });
-    if (!okUsername(username)) return j(res, 200, { ok: false, error: "BAD_USERNAME" });
-
-    const p = await redis("get", `pending:${email}`);
-    if (!p.result) return j(res, 200, { ok: false, error: "NO_PENDING" });
-
-    const data = JSON.parse(p.result);
-    if (!data.verified) return j(res, 200, { ok: false, error: "NO_PENDING" });
-
-    const taken = await redis("get", `user:username:${username}`);
-    if (taken.result) return j(res, 200, { ok: false, error: "USERNAME_TAKEN" });
-
-    const user = {
-      email,
-      username,
-      name,
-      about: "",
-      avatar: "",
-      badges: [],
-      pw: data.pw,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    };
-
-    await redis("set", `user:email:${email}`, JSON.stringify(user));
-    await redis("set", `user:username:${username}`, email);
-    await redis("del", `pending:${email}`);
-
-    const sid = crypto.randomBytes(24).toString("hex");
-    await redis("set", `sess:${sid}`, email, "EX", String(60 * 60 * 24 * 30));
-    setSid(res, sid);
-
-    return j(res, 200, { ok: true });
-  }
-
-  // LOGIN
-  if (action === "login") {
-    if (req.method !== "POST") return j(res, 405, { ok: false, error: "METHOD" });
-    if (!(await rateLimit(req, "login", 25, 60))) return j(res, 429, { ok: false, error: "RATE_LIMIT" });
-
-    const email = normEmail(body.email);
-    const password = String(body.password || "");
-
-    if (!email.includes("@")) return j(res, 200, { ok: false, error: "BAD_EMAIL" });
-
-    const u = await redis("get", `user:email:${email}`);
-    if (!u.result) return j(res, 200, { ok: false, error: "NO_ACCOUNT" });
-
-    const user = JSON.parse(u.result);
-    if (user.pw !== pwHash(password)) return j(res, 200, { ok: false, error: "BAD_CREDENTIALS" });
-
-    const sid = crypto.randomBytes(24).toString("hex");
-    await redis("set", `sess:${sid}`, email, "EX", String(60 * 60 * 24 * 30));
-    setSid(res, sid);
-
-    return j(res, 200, { ok: true });
-  }
-
-  // LOGOUT
-  if (action === "logout") {
-    if (req.method !== "POST") return j(res, 405, { ok: false, error: "METHOD" });
-    clearSid(res);
-    return j(res, 200, { ok: true });
-  }
-
-  // PROFILE GET
-  if (action === "profile_get") {
-    const email = await requireAuth(req, res);
-    if (!email) return;
-    const u = await redis("get", `user:email:${email}`);
-    if (!u.result) return j(res, 200, { ok: false, error: "NO_ACCOUNT" });
-    const user = JSON.parse(u.result);
-    return j(res, 200, { ok: true, user: {
-      email: user.email,
-      username: user.username,
-      name: user.name,
-      about: user.about || "",
-      avatar: user.avatar || "",
-      badges: user.badges || []
-    }});
-  }
-
-  // PROFILE SET
-  if (action === "profile_set") {
-    if (req.method !== "POST") return j(res, 405, { ok: false, error: "METHOD" });
-    const email = await requireAuth(req, res);
-    if (!email) return;
-
-    const u = await redis("get", `user:email:${email}`);
-    if (!u.result) return j(res, 200, { ok: false, error: "NO_ACCOUNT" });
-
-    const user = JSON.parse(u.result);
-
-    const newName = body.name !== undefined ? String(body.name).trim() : user.name;
-    const newAbout = body.about !== undefined ? String(body.about) : (user.about || "");
-    const newBadges = Array.isArray(body.badges) ? body.badges.map(String) : (user.badges || []);
-    const newUsername = body.username !== undefined ? normUser(body.username) : user.username;
-
-    if (!okName(newName)) return j(res, 200, { ok: false, error: "BAD_NAME" });
-    if (!okUsername(newUsername)) return j(res, 200, { ok: false, error: "BAD_USERNAME" });
-    if (newAbout.length > 240) return j(res, 200, { ok: false, error: "BAD_ABOUT" });
-
-    if (newUsername !== user.username) {
-      const taken = await redis("get", `user:username:${newUsername}`);
-      if (taken.result) return j(res, 200, { ok: false, error: "USERNAME_TAKEN" });
-      await redis("del", `user:username:${user.username}`);
-      await redis("set", `user:username:${newUsername}`, email);
+    if (!envOk()) {
+      return json(res, 500, { ok: false, error: "SERVER_MISCONFIGURED" });
     }
 
-    const allowed = new Set(["premium","verified","early"]);
-    const filtered = [];
-    for (const b of newBadges) {
-      if (allowed.has(b) && !filtered.includes(b)) filtered.push(b);
-      if (filtered.length >= 5) break;
+    // method sanity
+    if (req.method === "OPTIONS") return json(res, 200, { ok: true });
+
+    // global RL
+    if (!(await rateLimit(req, "auth", 120, 60))) {
+      return json(res, 429, { ok: false, error: "RATE_LIMIT" });
     }
 
-    user.name = newName;
-    user.about = newAbout;
-    user.username = newUsername;
-    user.badges = filtered;
-    user.updatedAt = Date.now();
+    // REGISTER SEND
+    if (action === "register_send") {
+      if (req.method !== "POST") return json(res, 405, { ok: false, error: "METHOD" });
 
-    await redis("set", `user:email:${email}`, JSON.stringify(user));
-    return j(res, 200, { ok: true });
+      const email = normEmail(body.email);
+      const password = String(body.password || "");
+
+      if (!email.includes("@")) return json(res, 200, { ok: false, error: "BAD_EMAIL" });
+      if (!okPassword(password)) return json(res, 200, { ok: false, error: "BAD_PASSWORD" });
+
+      const exists = await redis("get", `user:email:${email}`);
+      if (exists.result) return json(res, 200, { ok: false, error: "ACCOUNT_EXISTS" });
+
+      const code = genCode();
+      const saltHex = crypto.randomBytes(16).toString("hex");
+      const pw = pwHashV2(password, saltHex);
+
+      await redis(
+        "set",
+        `pending:${email}`,
+        JSON.stringify({ code, pw, createdAt: Date.now() }),
+        "EX",
+        300
+      );
+
+      // If Resend is not configured, still return ok (dev)
+      try { await sendCodeEmail(email, code); } catch (e) { return json(res, 200, { ok:false, error:"EMAIL_SEND_FAILED" }); }
+
+      return json(res, 200, { ok: true });
+    }
+
+    // REGISTER VERIFY
+    if (action === "register_verify") {
+      if (req.method !== "POST") return json(res, 405, { ok: false, error: "METHOD" });
+
+      const email = normEmail(body.email);
+      const code = String(body.code || "").trim();
+
+      const p = await redis("get", `pending:${email}`);
+      if (!p.result) return json(res, 200, { ok: false, error: "NO_PENDING" });
+
+      const data = JSON.parse(p.result);
+      if (data.code !== code) return json(res, 200, { ok: false, error: "INVALID_CODE" });
+
+      data.verified = true;
+      await redis("set", `pending:${email}`, JSON.stringify(data), "EX", 600);
+      return json(res, 200, { ok: true });
+    }
+
+    // REGISTER SETUP
+    if (action === "register_setup") {
+      if (req.method !== "POST") return json(res, 405, { ok: false, error: "METHOD" });
+
+      const email = normEmail(body.email);
+      const name = String(body.name || "").trim();
+      const username = normUser(body.username);
+
+      if (!okName(name)) return json(res, 200, { ok: false, error: "BAD_NAME" });
+      if (!okUsername(username)) return json(res, 200, { ok: false, error: "BAD_USERNAME" });
+
+      const p = await redis("get", `pending:${email}`);
+      if (!p.result) return json(res, 200, { ok: false, error: "NO_PENDING" });
+
+      const data = JSON.parse(p.result);
+      if (!data.verified) return json(res, 200, { ok: false, error: "NO_PENDING" });
+
+      const taken = await redis("get", `user:username:${username}`);
+      if (taken.result) return json(res, 200, { ok: false, error: "USERNAME_TAKEN" });
+
+      const user = {
+        email,
+        username,
+        name,
+        about: "",
+        avatar: "",
+        badges: [],
+        pw: data.pw,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+
+      await redis("set", `user:email:${email}`, JSON.stringify(user));
+      await redis("set", `user:username:${username}`, email);
+      await redis("del", `pending:${email}`);
+
+      const sid = crypto.randomBytes(24).toString("hex");
+      await redis("set", `sess:${sid}`, email, "EX", String(60 * 60 * 24 * 30));
+      setSid(res, req, sid);
+
+      return json(res, 200, { ok: true });
+    }
+
+    // LOGIN
+    if (action === "login") {
+      if (req.method !== "POST") return json(res, 405, { ok: false, error: "METHOD" });
+
+      // tighter RL
+      if (!(await rateLimit(req, "login", 30, 60))) return json(res, 429, { ok: false, error: "RATE_LIMIT" });
+
+      const email = normEmail(body.email);
+      const password = String(body.password || "");
+
+      if (!email.includes("@")) return json(res, 200, { ok: false, error: "BAD_EMAIL" });
+
+      const u = await redis("get", `user:email:${email}`);
+      if (!u.result) return json(res, 200, { ok: false, error: "NO_ACCOUNT" });
+
+      const user = JSON.parse(u.result);
+      if (!pwVerify(password, user.pw)) return json(res, 200, { ok: false, error: "BAD_CREDENTIALS" });
+
+      // migrate v1->v2 silently (if needed)
+      if (typeof user.pw === "string" && !user.pw.startsWith("pbkdf2$")) {
+        const saltHex = crypto.randomBytes(16).toString("hex");
+        user.pw = pwHashV2(password, saltHex);
+        user.updatedAt = Date.now();
+        await redis("set", `user:email:${email}`, JSON.stringify(user));
+      }
+
+      const sid = crypto.randomBytes(24).toString("hex");
+      await redis("set", `sess:${sid}`, email, "EX", String(60 * 60 * 24 * 30));
+      setSid(res, req, sid);
+
+      return json(res, 200, { ok: true });
+    }
+
+    // LOGOUT
+    if (action === "logout") {
+      if (req.method !== "POST") return json(res, 405, { ok: false, error: "METHOD" });
+      clearSid(res, req);
+      return json(res, 200, { ok: true });
+    }
+
+    // PROFILE GET
+    if (action === "profile_get") {
+      const email = await requireAuth(req, res);
+      if (!email) return;
+
+      const u = await redis("get", `user:email:${email}`);
+      if (!u.result) return json(res, 200, { ok: false, error: "NO_ACCOUNT" });
+
+      const user = JSON.parse(u.result);
+      return json(res, 200, {
+        ok: true,
+        user: {
+          email: user.email,
+          username: user.username,
+          name: user.name,
+          about: user.about || "",
+          avatar: user.avatar || "",
+          badges: user.badges || []
+        }
+      });
+    }
+
+    // PROFILE SET
+    if (action === "profile_set") {
+      if (req.method !== "POST") return json(res, 405, { ok: false, error: "METHOD" });
+
+      const email = await requireAuth(req, res);
+      if (!email) return;
+
+      const u = await redis("get", `user:email:${email}`);
+      if (!u.result) return json(res, 200, { ok: false, error: "NO_ACCOUNT" });
+
+      const user = JSON.parse(u.result);
+
+      const newName = body.name !== undefined ? String(body.name).trim() : user.name;
+      const newUsername = body.username !== undefined ? normUser(body.username) : user.username;
+      const newAbout = body.about !== undefined ? String(body.about) : (user.about || "");
+      const newBadges = Array.isArray(body.badges) ? body.badges.map(String) : (user.badges || []);
+
+      if (!okName(newName)) return json(res, 200, { ok: false, error: "BAD_NAME" });
+      if (!okUsername(newUsername)) return json(res, 200, { ok: false, error: "BAD_USERNAME" });
+      if (!okAbout(newAbout)) return json(res, 200, { ok: false, error: "BAD_ABOUT" });
+
+      if (newUsername !== user.username) {
+        const taken = await redis("get", `user:username:${newUsername}`);
+        if (taken.result) return json(res, 200, { ok: false, error: "USERNAME_TAKEN" });
+        await redis("del", `user:username:${user.username}`);
+        await redis("set", `user:username:${newUsername}`, email);
+      }
+
+      const filtered = [];
+      for (const b of newBadges) {
+        if (ALLOWED_BADGES.has(b) && !filtered.includes(b)) filtered.push(b);
+        if (filtered.length >= 5) break;
+      }
+
+      user.name = newName;
+      user.username = newUsername;
+      user.about = newAbout;
+      user.badges = filtered;
+      user.updatedAt = Date.now();
+
+      await redis("set", `user:email:${email}`, JSON.stringify(user));
+      return json(res, 200, { ok: true });
+    }
+
+    // AVATAR SET
+    if (action === "avatar_set") {
+      if (req.method !== "POST") return json(res, 405, { ok: false, error: "METHOD" });
+
+      const email = await requireAuth(req, res);
+      if (!email) return;
+
+      const dataUrl = String(body.dataUrl || "");
+      if (!dataUrl.startsWith("data:image/")) return json(res, 200, { ok: false, error: "BAD_IMAGE" });
+      if (dataUrl.length > 2_000_000) return json(res, 200, { ok: false, error: "TOO_LARGE" });
+
+      const u = await redis("get", `user:email:${email}`);
+      if (!u.result) return json(res, 200, { ok: false, error: "NO_ACCOUNT" });
+
+      const user = JSON.parse(u.result);
+      user.avatar = dataUrl;
+      user.updatedAt = Date.now();
+      await redis("set", `user:email:${email}`, JSON.stringify(user));
+
+      return json(res, 200, { ok: true });
+    }
+
+    return json(res, 404, { ok: false, error: "UNKNOWN_ACTION" });
+  } catch (e) {
+    // Never crash: always return JSON
+    return json(res, 500, { ok: false, error: "SERVER_ERROR", detail: String(e?.message || e) });
   }
-
-  // AVATAR SET (dataUrl)
-  if (action === "avatar_set") {
-    if (req.method !== "POST") return j(res, 405, { ok: false, error: "METHOD" });
-    const email = await requireAuth(req, res);
-    if (!email) return;
-
-    const dataUrl = String(body.dataUrl || "");
-    if (!dataUrl.startsWith("data:image/")) return j(res, 200, { ok: false, error: "BAD_IMAGE" });
-    if (dataUrl.length > 2_000_000) return j(res, 200, { ok: false, error: "TOO_LARGE" });
-
-    const u = await redis("get", `user:email:${email}`);
-    if (!u.result) return j(res, 200, { ok: false, error: "NO_ACCOUNT" });
-
-    const user = JSON.parse(u.result);
-    user.avatar = dataUrl;
-    user.updatedAt = Date.now();
-    await redis("set", `user:email:${email}`, JSON.stringify(user));
-    return j(res, 200, { ok: true });
-  }
-
-  return j(res, 404, { ok: false, error: "UNKNOWN_ACTION" });
 }
