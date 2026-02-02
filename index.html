@@ -4,67 +4,97 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Exuberant</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="/base.css">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
-<main class="auth-wrap">
-  <section class="card auth-card">
-    <header class="auth-head">
-      <div class="brand">Exuberant</div>
+<main class="auth">
+  <section class="auth-card">
+
+    <header class="auth-header">
+      <div class="logo">Exuberant</div>
+      <div class="tagline">forum • dm • profiles</div>
+
       <div class="tabs">
-        <button id="tabReg" class="tab active" onclick="setMode('reg')">Регистрация</button>
-        <button id="tabLogin" class="tab" onclick="setMode('login')">Вход</button>
+        <button id="tabReg" class="tab active" type="button" onclick="setMode('reg')">Регистрация</button>
+        <button id="tabLogin" class="tab" type="button" onclick="setMode('login')">Вход</button>
       </div>
     </header>
 
     <div id="msg" class="msg hidden"></div>
 
+    <!-- REGISTER -->
     <div id="regFlow">
+
       <div id="regStep1" class="block">
         <label class="label">Email</label>
         <input class="input" id="regEmail" placeholder="you@example.com" autocomplete="email">
+
         <label class="label">Пароль</label>
         <input class="input" id="regPassword" type="password" placeholder="минимум 8 символов" autocomplete="new-password">
-        <button class="btn" onclick="regSend()">Продолжить</button>
+
+        <button class="btn" id="btnRegSend" type="button" onclick="regSend()">Продолжить</button>
+
+        <div class="hint">
+          Мы отправим код на почту, чтобы подтвердить email.
+        </div>
       </div>
 
       <div id="regStep2" class="block hidden">
         <label class="label">Код из письма</label>
-        <input class="input" id="regCode" placeholder="123456">
-        <button class="btn" onclick="regVerify()">Подтвердить</button>
+        <input class="input" id="regCode" placeholder="123456" inputmode="numeric">
+
+        <button class="btn" id="btnRegVerify" type="button" onclick="regVerify()">Подтвердить</button>
+
+        <button class="btn-ghost" type="button" onclick="backToReg1()">Назад</button>
       </div>
 
       <div id="regStep3" class="block hidden">
         <label class="label">Имя</label>
         <input class="input" id="regName" placeholder="Имя">
+
         <label class="label">Username</label>
         <input class="input" id="regUsername" placeholder="@username">
-        <button class="btn" onclick="regSetup()">Завершить</button>
+
+        <button class="btn" id="btnRegSetup" type="button" onclick="regSetup()">Завершить</button>
       </div>
+
     </div>
 
+    <!-- LOGIN -->
     <div id="loginFlow" class="hidden">
       <div class="block">
         <label class="label">Email</label>
         <input class="input" id="loginEmail" placeholder="you@example.com" autocomplete="email">
+
         <label class="label">Пароль</label>
         <input class="input" id="loginPassword" type="password" placeholder="пароль" autocomplete="current-password">
-        <button class="btn" onclick="login()">Войти</button>
+
+        <button class="btn" id="btnLogin" type="button" onclick="login()">Войти</button>
+
+        <div class="hint-row">
+          <span class="muted small">Нет аккаунта?</span>
+          <button class="link-btn" type="button" onclick="setMode('reg')">Регистрация</button>
+        </div>
       </div>
     </div>
 
-    <div class="muted small" style="text-align:center; margin-top:12px;">exuberant.pw</div>
+    <footer class="auth-footer">
+      <span class="muted small">exuberant.pw</span>
+    </footer>
+
   </section>
 </main>
 
 <script>
-let MODE="reg";
-let REG_EMAIL="";
+let MODE = "reg";
+let REG_EMAIL = "";
 
 function show(t){ msg.textContent=t; msg.classList.remove("hidden"); }
 function hide(){ msg.classList.add("hidden"); msg.textContent=""; }
@@ -78,6 +108,12 @@ function setMode(m){
   hide();
 }
 
+function setLoading(btn, on, text){
+  btn.disabled = on;
+  btn.dataset.old = btn.dataset.old || btn.textContent;
+  btn.textContent = on ? (text || "…") : btn.dataset.old;
+}
+
 async function postAuth(action, data){
   const r = await fetch(`/api/auth?action=${encodeURIComponent(action)}`, {
     method:"POST",
@@ -85,7 +121,9 @@ async function postAuth(action, data){
     headers:{ "Content-Type":"application/json" },
     body: JSON.stringify(data)
   });
-  return r.json().catch(()=>({ ok:false, error:"BAD_RESPONSE" }));
+  let j = null;
+  try { j = await r.json(); } catch { j = { ok:false, error:"BAD_RESPONSE" }; }
+  return j;
 }
 
 function mapErr(e){
@@ -101,15 +139,25 @@ function mapErr(e){
     NO_ACCOUNT: "Аккаунт не найден.",
     BAD_CREDENTIALS: "Неверный email или пароль.",
     RATE_LIMIT: "Слишком часто. Попробуй позже.",
-    BAD_RESPONSE: "Ошибка ответа сервера."
+    BAD_RESPONSE: "Сервер вернул неверный ответ."
   };
   return m[e] || "Ошибка. Попробуй ещё раз.";
+}
+
+function backToReg1(){
+  regStep2.classList.add("hidden");
+  regStep1.classList.remove("hidden");
+  hide();
 }
 
 async function regSend(){
   hide();
   REG_EMAIL = regEmail.value.trim().toLowerCase();
+
+  setLoading(btnRegSend, true, "Отправляем…");
   const r = await postAuth("register_send", { email: REG_EMAIL, password: regPassword.value });
+  setLoading(btnRegSend, false);
+
   if (!r.ok){
     show(mapErr(r.error));
     if (r.error === "ACCOUNT_EXISTS"){
@@ -118,35 +166,47 @@ async function regSend(){
     }
     return;
   }
+
   regStep1.classList.add("hidden");
   regStep2.classList.remove("hidden");
 }
 
 async function regVerify(){
   hide();
+  setLoading(btnRegVerify, true, "Проверяем…");
   const r = await postAuth("register_verify", { email: REG_EMAIL, code: regCode.value.trim() });
+  setLoading(btnRegVerify, false);
+
   if (!r.ok){ show(mapErr(r.error)); return; }
+
   regStep2.classList.add("hidden");
   regStep3.classList.remove("hidden");
 }
 
 async function regSetup(){
   hide();
+  setLoading(btnRegSetup, true, "Создаём…");
   const r = await postAuth("register_setup", {
     email: REG_EMAIL,
     name: regName.value,
     username: regUsername.value
   });
+  setLoading(btnRegSetup, false);
+
   if (!r.ok){ show(mapErr(r.error)); return; }
+
   location.href="/forum.html";
 }
 
 async function login(){
   hide();
+  setLoading(btnLogin, true, "Входим…");
   const r = await postAuth("login", {
     email: loginEmail.value.trim().toLowerCase(),
     password: loginPassword.value
   });
+  setLoading(btnLogin, false);
+
   if (!r.ok){ show(mapErr(r.error)); return; }
   location.href="/forum.html";
 }
