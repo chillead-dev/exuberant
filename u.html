@@ -1,80 +1,76 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>User</title>
+  <meta charset="UTF-8">
+  <title>Profile — Exuberant</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="/base.css">
-  <link rel="stylesheet" href="/forum-ui.css">
+  <style>
+    .profile {
+      max-width: 420px;
+      margin: 0 auto;
+      padding: 20px;
+      text-align: center;
+    }
+    .p-avatar {
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      margin: 0 auto 12px;
+    }
+    .p-name {
+      font-size: 22px;
+      font-weight: 900;
+    }
+    .p-username {
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+    .p-about {
+      margin-top: 14px;
+      line-height: 1.4;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.12);
+      margin: 4px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+  </style>
 </head>
 <body>
 
-<header class="topbar">
-  <div class="left">
-    <div class="brand">
-      <div class="title">Profile</div>
-      <div class="sub" id="sub">loading…</div>
-    </div>
-  </div>
-  <div class="right">
-    <button class="btn-ghost" onclick="history.back()">Back</button>
-  </div>
-</header>
-
-<main class="container page-pad">
-  <section class="card profile-card">
-    <div class="profile-top">
-      <img id="ava" class="big-avatar" alt="">
-      <div style="min-width:0">
-        <div class="pname" id="name"></div>
-        <div class="puname" id="uname"></div>
-        <div class="badges" id="badges" style="margin-top:8px"></div>
-      </div>
-    </div>
-
-    <div class="profile-actions">
-      <button class="btn-soft" id="msgBtn">Message</button>
-      <button class="btn-ghost" id="postsBtn">Posts</button>
-    </div>
-
-    <div class="hr"></div>
-    <div class="muted small" id="about"></div>
-  </section>
-</main>
+<div class="profile">
+  <img id="av" class="p-avatar">
+  <div id="name" class="p-name"></div>
+  <div id="username" class="p-username"></div>
+  <div id="badges"></div>
+  <div id="about" class="p-about"></div>
+</div>
 
 <script>
-function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function badgeHtml(b){
-  const cls = (b==="premium"||b==="verified"||b==="early") ? b : "";
-  return `<span class="badge ${cls}">${esc(b.toUpperCase())}</span>`;
-}
+const u = new URLSearchParams(location.search).get("u");
 
-const u = new URLSearchParams(location.search).get("u") || "";
-sub.textContent = "@"+u;
+fetch(`/api/data?action=user_get&u=${encodeURIComponent(u)}`, {
+  credentials:"include"
+}).then(r=>r.json()).then(r=>{
+  if (!r.ok) return;
 
-(async()=>{
-  const r = await fetch(`/api/data?action=user_get&u=${encodeURIComponent(u)}`, { credentials:"include" });
-  if (r.status === 401) return location.href="/index.html";
-  const j = await r.json().catch(()=>({ ok:false }));
+  av.src = r.user.avatar || "/avatar.png";
+  name.textContent = r.user.name || "Без имени";
+  username.textContent = "@" + r.user.username;
+  about.textContent = r.user.about || "";
 
-  if (!j.ok){
-    name.textContent = "User not found";
-    uname.textContent = "";
-    msgBtn.disabled = true;
-    postsBtn.disabled = true;
-    return;
+  for (const b of (r.user.badges || [])) {
+    const el = document.createElement("span");
+    el.className = "badge";
+    el.textContent = b;
+    badges.appendChild(el);
   }
-
-  const user = j.user;
-  name.textContent = user.name || ("@"+user.username);
-  uname.textContent = "@"+user.username;
-  if (user.avatar) ava.src = user.avatar; else ava.style.visibility="hidden";
-  badges.innerHTML = (user.badges||[]).map(badgeHtml).join("") || `<span class="muted small">no badges</span>`;
-  about.textContent = user.about || "";
-
-  msgBtn.onclick = () => location.href = `/chat.html?u=${encodeURIComponent(user.username)}`;
-  postsBtn.onclick = () => location.href = `/forum.html?author=${encodeURIComponent(user.username)}`;
-})();
+});
 </script>
 
 </body>
