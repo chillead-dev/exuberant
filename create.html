@@ -1,12 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>New post — Exuberant</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>New post</title>
   <link rel="stylesheet" href="/base.css">
   <link rel="stylesheet" href="/forum-ui.css">
 </head>
@@ -16,7 +13,7 @@
   <div class="left">
     <div class="brand">
       <div class="title">New post</div>
-      <div class="sub">Write something worth reading</div>
+      <div class="sub">Write & publish</div>
     </div>
   </div>
   <div class="right">
@@ -29,18 +26,14 @@
     <div id="msg" class="msg hidden"></div>
 
     <label class="label">Title</label>
-    <input class="input" id="title" placeholder="">
+    <input class="input" id="title"/>
 
     <label class="label">Body</label>
-    <textarea class="textarea" id="body" placeholder=""></textarea>
+    <textarea class="textarea" id="body"></textarea>
 
     <div class="editor-row">
       <button class="btn" id="pub" onclick="publish()">Publish</button>
       <button class="btn-ghost" onclick="location.href='/forum.html'">Cancel</button>
-    </div>
-
-    <div class="muted small" style="margin-top:10px">
-      Tip: keep it short, keep it sharp.
     </div>
   </section>
 </main>
@@ -54,29 +47,23 @@ async function publish(){
   pub.disabled = true;
   pub.textContent = "Publishing…";
 
-  try{
-    const r = await fetch("/api/posts", {
-      method:"POST",
-      credentials:"include",
-      headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ title: title.value, body: body.value })
-    });
+  const r = await fetch("/api/data?action=post_create", {
+    method:"POST",
+    credentials:"include",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ title: title.value, body: body.value })
+  });
 
-    const j = await r.json().catch(()=>({ ok:false, error:"BAD_RESPONSE" }));
+  const j = await r.json().catch(()=>({ ok:false, error:"BAD_RESPONSE" }));
 
-    if (!j.ok){
-      show(j.error || "Publish failed");
-      pub.disabled = false;
-      pub.textContent = "Publish";
-      return;
-    }
-
-    location.href = "/post.html?id=" + encodeURIComponent(j.id);
-  }catch(e){
-    show("Network error");
+  if (!j.ok){
     pub.disabled = false;
     pub.textContent = "Publish";
+    show(j.error || "Publish failed");
+    return;
   }
+
+  location.href = "/post.html?id=" + encodeURIComponent(j.id);
 }
 </script>
 
