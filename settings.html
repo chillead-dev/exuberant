@@ -1,12 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Settings — Exuberant</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Settings</title>
   <link rel="stylesheet" href="/base.css">
   <link rel="stylesheet" href="/forum-ui.css">
 </head>
@@ -40,7 +37,6 @@
 
     <input type="file" id="avatarFile" class="input" accept="image/*">
     <button class="btn-soft" onclick="uploadAvatar()">Upload avatar</button>
-
     <div id="msgA" class="msg hidden"></div>
   </section>
 
@@ -56,7 +52,7 @@
 
     <div class="hr"></div>
 
-    <div class="muted small" style="margin-bottom:8px;">Badges (visual only)</div>
+    <div class="muted small" style="margin-bottom:8px;">Badges</div>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <label class="badge premium"><input type="checkbox" id="bPremium"> PREMIUM</label>
       <label class="badge verified"><input type="checkbox" id="bVerified"> VERIFIED</label>
@@ -72,84 +68,82 @@
 </main>
 
 <script>
-function show(el, t){ el.textContent=t; el.classList.remove("hidden"); }
+function show(el,t){ el.textContent=t; el.classList.remove("hidden"); }
 function hide(el){ el.classList.add("hidden"); el.textContent=""; }
 
-async function me(){
-  const r = await fetch("/api/profile", { credentials:"include" });
-  if (r.status === 401) location.href="/index.html";
-  return r.json();
+async function getMe(){
+  const r = await fetch("/api/auth?action=profile_get", { credentials:"include" });
+  if (r.status===401) location.href="/index.html";
+  return r.json().catch(()=>({ok:false}));
 }
 
-async function save(){
-  hide(msg);
-  const badges = [];
-  if (bPremium.checked) badges.push("premium");
-  if (bVerified.checked) badges.push("verified");
-  if (bEarly.checked) badges.push("early");
-
-  const r = await fetch("/api/profile", {
+async function postAuth(action, data){
+  const r = await fetch(`/api/auth?action=${encodeURIComponent(action)}`, {
     method:"POST",
-    headers:{ "Content-Type":"application/json" },
     credentials:"include",
-    body: JSON.stringify({
-      name: name.value,
-      username: username.value,
-      about: about.value,
-      badges
-    })
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(data)
   });
-  const j = await r.json().catch(()=>({}));
-  if (!j.ok) return show(msg, j.error || "Save failed");
-  show(msg, "Saved");
+  return r.json().catch(()=>({ok:false,error:"BAD_RESPONSE"}));
+}
+
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const fr=new FileReader();
+    fr.onload=()=>resolve(String(fr.result));
+    fr.onerror=reject;
+    fr.readAsDataURL(file);
+  });
 }
 
 async function uploadAvatar(){
   hide(msgA);
   const f = avatarFile.files[0];
-  if (!f) return show(msgA, "Choose file");
+  if (!f) return show(msgA,"Choose file");
+  if (f.size > 1.5*1024*1024) return show(msgA,"Too large (max 1.5MB)");
 
-  if (f.size > 1.5 * 1024 * 1024) return show(msgA, "Too large (max 1.5MB)");
+  const dataUrl = await fileToDataUrl(f);
+  preview.src = dataUrl;
 
-  const b64 = await fileToDataUrl(f);
-  preview.src = b64;
-
-  const r = await fetch("/api/avatar", {
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    credentials:"include",
-    body: JSON.stringify({ dataUrl: b64 })
-  });
-  const j = await r.json().catch(()=>({}));
-  if (!j.ok) return show(msgA, j.error || "Upload failed");
-  show(msgA, "Avatar updated");
+  const r = await postAuth("avatar_set", { dataUrl });
+  if (!r.ok) return show(msgA, r.error || "Upload failed");
+  show(msgA,"Avatar updated");
 }
 
-function fileToDataUrl(file){
-  return new Promise((resolve, reject)=>{
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result));
-    fr.onerror = reject;
-    fr.readAsDataURL(file);
+async function save(){
+  hide(msg);
+  const badges=[];
+  if (bPremium.checked) badges.push("premium");
+  if (bVerified.checked) badges.push("verified");
+  if (bEarly.checked) badges.push("early");
+
+  const r = await postAuth("profile_set", {
+    name: name.value,
+    username: username.value,
+    about: about.value,
+    badges
   });
+  if (!r.ok) return show(msg, r.error || "Save failed");
+  show(msg,"Saved");
 }
 
 async function logout(){
-  await fetch("/api/auth?action=logout", { method:"POST", credentials:"include" });
+  await postAuth("logout", {});
   location.href="/index.html";
 }
 
-(async ()=>{
-  const u = await me();
-  name.value = u.name || "";
-  username.value = "@"+(u.username||"");
-  about.value = u.about || "";
-  if (u.avatar) preview.src = u.avatar; else preview.style.visibility="hidden";
+(async()=>{
+  const me = await getMe();
+  if (!me.ok) return location.href="/index.html";
+  name.value = me.user.name || "";
+  username.value = "@"+(me.user.username||"");
+  about.value = me.user.about || "";
+  if (me.user.avatar) preview.src = me.user.avatar; else preview.style.visibility="hidden";
 
-  const b = new Set(u.badges || []);
-  bPremium.checked = b.has("premium");
-  bVerified.checked = b.has("verified");
-  bEarly.checked = b.has("early");
+  const s = new Set(me.user.badges || []);
+  bPremium.checked = s.has("premium");
+  bVerified.checked = s.has("verified");
+  bEarly.checked = s.has("early");
 })();
 </script>
 
