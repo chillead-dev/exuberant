@@ -1,24 +1,29 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>Search</title>
-
   <link rel="stylesheet" href="/base.css">
   <link rel="stylesheet" href="/forum-ui.css">
 </head>
 <body>
 
 <header class="topbar">
-  <div class="title">Search</div>
+  <div class="left">
+    <div class="brand">
+      <div class="title">Search</div>
+      <div class="sub">Find by @username</div>
+    </div>
+  </div>
   <div class="right">
-    <button class="btn-ghost" onclick="location.href='/forum.html'">Назад</button>
+    <button class="btn-ghost" onclick="location.href='/forum.html'">Back</button>
   </div>
 </header>
 
 <main class="container page-pad">
-  <input class="input" id="q" placeholder="@username" oninput="search()">
+  <input class="input" id="q" placeholder="@username" oninput="debounced()">
+  <div class="muted small" id="hint" style="margin:6px 0 10px;">Type 2+ chars</div>
   <div class="list" id="list"></div>
 </main>
 
@@ -30,18 +35,38 @@
 </nav>
 
 <script>
-async function search(){
-  const term = q.value.replace("@","").trim();
-  if (term.length < 2) return list.innerHTML = "";
-  const r = await fetch(`/api/users?q=${term}`, { credentials:"include" });
-  const j = await r.json();
-  list.innerHTML = j.users.map(u => `
+let t=null;
+function debounced(){ clearTimeout(t); t=setTimeout(run, 250); }
+function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+
+function badgeHtml(b){
+  const cls = (b==="premium"||b==="verified"||b==="early") ? b : "";
+  return `<span class="badge ${cls}">${esc(b.toUpperCase())}</span>`;
+}
+
+async function run(){
+  const raw = q.value.trim();
+  const term = raw.startsWith("@") ? raw.slice(1) : raw;
+  if (term.length < 2){ list.innerHTML=""; hint.textContent="Type 2+ chars"; return; }
+
+  hint.textContent="Searching…";
+  const r = await fetch(`/api/data?action=users_search&q=${encodeURIComponent(term)}`, { credentials:"include" });
+  if (r.status === 401) return location.href="/index.html";
+  const j = await r.json().catch(()=>({ ok:false, users:[] }));
+  const users = j.users || [];
+
+  hint.textContent = users.length ? `Found: ${users.length}` : "No matches";
+
+  list.innerHTML = users.map(u => `
     <div class="row">
-      <div>
-        <div class="uname">@${u.username}</div>
-        <div class="meta">${u.name||""}</div>
+      <div class="who" onclick="location.href='/u.html?u=${encodeURIComponent(u.username)}'" style="cursor:pointer">
+        <img class="avatar" src="${u.avatar||""}" style="${u.avatar?'':'visibility:hidden'}" alt="">
+        <div class="nameblock">
+          <div class="uname">@${esc(u.username)}</div>
+          <div class="meta">${esc(u.name||"")} ${(u.badges||[]).slice(0,2).map(badgeHtml).join(" ")}</div>
+        </div>
       </div>
-      <button class="btn-soft" onclick="location.href='/chat.html?u=${u.username}'">Message</button>
+      <button class="btn-soft" onclick="event.stopPropagation(); location.href='/chat.html?u=${encodeURIComponent(u.username)}'">Message</button>
     </div>
   `).join("");
 }
