@@ -1,6 +1,5 @@
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
 
 async function redis(command, ...args) {
   const r = await fetch(REDIS_URL, {
@@ -14,126 +13,91 @@ async function redis(command, ...args) {
   return r.json();
 }
 
-function json(res, code, data) {
-  res.statusCode = code;
+function send(res, status, data) {
+  res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(data));
 }
 
-function getCookies(req) {
-  const out = {};
-  (req.headers.cookie || "")
-    .split(";")
-    .forEach((p) => {
-      const [k, v] = p.trim().split("=");
-      if (k) out[k] = v;
-    });
-  return out;
+function getSession(req) {
+  const cookies = {};
+  (req.headers.cookie || "").split(";").forEach((p) => {
+    const [k, v] = p.trim().split("=");
+    if (k) cookies[k] = decodeURIComponent(v || "");
+  });
+  return cookies.session;
 }
 
-function makeThreadId(a, b) {
+function threadId(a, b) {
   return [a, b].sort().join("::");
 }
 
 export default async function handler(req, res) {
-  const cookies = getCookies(req);
-  const email = cookies.session;
+  try {
+    const email = getSession(req);
+    if (!email) return send(res, 401, { ok: false });
 
-  if (!email) {
-    return json(res, 401, { ok: false });
-  }
+    const rawUser = await redis("get", `user:${email}`);
+    if (!rawUser.result) return send(res, 401, { ok: false });
 
-  const userRaw = await redis("get", `user:${email}`);
-  if (!userRaw.result) {
-    return json(res, 401, { ok: false });
-  }
+    /* ===== CHAT INIT ===== */
+    if (req.query.action === "init") {
+      const peerUsername = req.query.u;
+      const peerEmail = (await redis("get", `username:${peerUsername}`)).result;
+      if (!peerEmail) return send(res, 404, { ok: false });
 
-  const user = JSON.parse(userRaw.result);
+      const tid = threadId(email, peerEmail);
 
-  /* ================= PROFILE ================= */
+      await redis("sadd", `chats:${email}`, tid);
+      await redis("sadd", `chats:${peerEmail}`, tid);
 
-  if (req.query.action === "me") {
-    return json(res, 200, { ok: true, user });
-  }
+      return send(res, 200, { ok: true, threadId: tid });
+    }
 
-  if (req.query.action === "user") {
-    const u = req.query.u;
-    const email2 = (await redis("get", `username:${u}`)).result;
-    if (!email2) return json(res, 404, { ok: false });
+    /* ===== CHAT LIST ===== */
+    if (req.query.action === "list") {
+      const r = await redis("smembers", `chats:${email}`);
+      const chats = [];
 
-    const u2 = JSON.parse((await redis("get", `user:${email2}`)).result);
-    return json(res, 200, { ok: true, user: u2 });
-  }
+      for (const tid of r.result || []) {
+        const [a, b] = tid.split("::");
+        const peer = a === email ? b : a;
+        const u = JSON.parse((await redis("get", `user:${peer}`)).result);
+        chats.push({ threadId: tid, peer: u });
+      }
 
-  /* ================= CHATS ================= */
+      return send(res, 200, { ok: true, chats });
+    }
 
-  if (req.query.action === "chat_init") {
-    const peerUsername = req.query.u;
-    const peerEmail = (await redis("get", `username:${peerUsername}`)).result;
-    if (!peerEmail) return json(res, 404, { ok: false });
+    /* ===== SEND MESSAGE ===== */
+    if (req.query.action === "send" && req.method === "POST") {
+      let raw = "";
+      for await (const c of req) raw += c;
+      const body = raw ? JSON.parse(raw) : {};
 
-    const threadId = makeThreadId(email, peerEmail);
+      const msg = {
+        id: Date.now(),
+        from: email,
+        text: body.text || "",
+        ts: Date.now(),
+      };
 
-    await redis("sadd", `chats:${email}`, threadId);
-    await redis("sadd", `chats:${peerEmail}`, threadId);
+      await redis("rpush", `msgs:${body.threadId}`, JSON.stringify(msg));
+      return send(res, 200, { ok: true });
+    }
 
-    return json(res, 200, { ok: true, threadId });
-  }
-
-  if (req.query.action === "chat_list") {
-    const r = await redis("smembers", `chats:${email}`);
-    const chats = [];
-
-    for (const tid of r.result || []) {
-      const [a, b] = tid.split("::");
-      const peerEmail = a === email ? b : a;
-      const peer = JSON.parse((await redis("get", `user:${peerEmail}`)).result);
-
-      chats.push({
-        threadId: tid,
-        peer: {
-          username: peer.username,
-          name: peer.name,
-          avatar: peer.avatar,
-          badges: peer.badges,
-        },
+    /* ===== FETCH ===== */
+    if (req.query.action === "fetch") {
+      const r = await redis("lrange", `msgs:${req.query.threadId}`, 0, -1);
+      return send(res, 200, {
+        ok: true,
+        messages: (r.result || []).map(JSON.parse),
       });
     }
 
-    return json(res, 200, { ok: true, chats });
+    return send(res, 400, { ok: false });
+  } catch (e) {
+    console.error("DATA ERROR:", e);
+    return send(res, 500, { ok: false });
   }
-
-  if (req.query.action === "chat_send" && req.method === "POST") {
-    let body = "";
-    for await (const c of req) body += c;
-    body = JSON.parse(body || "{}");
-
-    const msg = {
-      id: Date.now(),
-      from: email,
-      text: body.text,
-      ts: Date.now(),
-    };
-
-    await redis(
-      "rpush",
-      `chat:${body.threadId}:msgs`,
-      JSON.stringify(msg)
-    );
-
-    return json(res, 200, { ok: true });
-  }
-
-  if (req.query.action === "chat_fetch") {
-    const r = await redis(
-      "lrange",
-      `chat:${req.query.threadId}:msgs`,
-      0,
-      -1
-    );
-    const msgs = (r.result || []).map(JSON.parse);
-    return json(res, 200, { ok: true, messages: msgs });
-  }
-
-  return json(res, 400, { ok: false });
 }
